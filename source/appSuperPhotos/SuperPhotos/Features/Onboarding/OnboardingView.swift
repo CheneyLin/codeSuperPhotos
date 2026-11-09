@@ -12,25 +12,25 @@ struct OnboardingView: View {
 
     private let pages: [OnboardingPage] = [
         OnboardingPage(
-            symbol: "rectangle.3.group",
-            title: "五个区域，一眼就懂",
-            subtitle: "整个 App 只有一屏，所有动作都在这一屏完成。",
+            symbol: "rectangle.stack",
+            title: "从桌面开始一批",
+            subtitle: "桌面不展示照片，选一个相簿，一次最多整理 \(TaskPolicy.batchSize) 张。",
             items: [
-                .init("line.3.horizontal.decrease.circle", "顶部筛选", "按照片、视频或相簿缩小范围。"),
-                .init("photo", "中央舞台", "四张堆叠，轻点看下一张，双指缩放。"),
+                .init("photo.stack", "选择相簿", "「全部照片」或任意自建相簿，按顺序逐张处理。"),
+                .init("photo", "中央舞台", "四张堆叠，轻点全屏，双指缩放。"),
                 .init("sidebar.left", "左右抽屉", "左侧保险箱预览，右侧相簿列表。"),
-                .init("flame", "底部机器", "壁炉与碎纸机，负责真正的删除。")
+                .init("flame", "底部机器", "壁炉与碎纸机，选择删除方式。")
             ]
         ),
         OnboardingPage(
             symbol: "flame",
-            title: "下滑积攒，达到才销毁",
-            subtitle: "下滑只加入待销毁，不会立刻删除系统照片。",
+            title: "先入队，任务结束统一处理",
+            subtitle: "下滑只加入本批待销毁，不会立刻删除系统照片。",
             items: [
                 .init("hand.draw", "下滑照片", "超过 \(Int(StageStackPolicy.discardCommitDistance))pt 才计入，不足会弹回原位。"),
                 .init("flame", "飞入处理口", "照片飞进底部炉口或刀口，粒子里消失。"),
-                .init("chart.bar.fill", "攒满 \(DestroyPolicy.autoConfirmThreshold) 张", "进度条走满后自动亮灯并弹出确认。"),
-                .init("arrow.uturn.backward", "还有退路", "确认前可取消；删除进入系统『最近删除』，保留 30 天。")
+                .init("checkmark.circle", "统一结算", "一批处理完才加密保险箱、删除废纸篓。"),
+                .init("arrow.uturn.backward", "系统确认", "不可逆操作由系统确认框把关；取消不会留下重复副本。")
             ]
         ),
         OnboardingPage(

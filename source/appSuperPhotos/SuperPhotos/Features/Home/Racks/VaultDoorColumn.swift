@@ -7,6 +7,8 @@ struct VaultDoorColumn: View {
     let isConfigured: Bool
     /// 门是否打开；由外部在“存入”动作的同一时刻置位。
     let isOpen: Bool
+    /// 本批待加密队列张数；任务结束统一加密，这里只显示数量。
+    let pendingCount: Int
     let onTap: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -24,13 +26,29 @@ struct VaultDoorColumn: View {
             .accessibilityLabel("私密保险箱，已存 \(count) 件")
             .accessibilityHint("点按查看预览，解锁后可管理")
 
-            Text("保险箱")
-                .font(.system(size: 10, weight: .semibold))
+            intakeFooter
+        }
+        .frame(width: width)
+    }
+
+    // MARK: - 队列计数
+
+    private var intakeFooter: some View {
+        VStack(spacing: 2) {
+            Text("待加密")
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(Theme.Text.tertiary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+
+            Text("\(pendingCount) 张")
+                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(pendingCount > 0 ? Theme.Accent.brass : Theme.Text.secondary)
+                .minimumScaleFactor(0.7)
         }
-        .frame(width: width)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("本批待加密 \(pendingCount) 张，任务结束时统一加密")
     }
 
     // MARK: - 门
@@ -157,11 +175,23 @@ struct VaultDoorColumn: View {
 
 #Preview {
     HStack(spacing: 12) {
-        VaultDoorColumn(width: 78, count: 5, isConfigured: true, isOpen: false, onTap: {})
-        VaultDoorColumn(width: 78, count: 5, isConfigured: true, isOpen: true, onTap: {})
-        VaultDoorColumn(width: 148, count: 0, isConfigured: false, isOpen: false, onTap: {})
+        VaultDoorColumn(
+            width: 78, count: 5, isConfigured: true, isOpen: false,
+            pendingCount: 3,
+            onTap: {}
+        )
+        VaultDoorColumn(
+            width: 78, count: 5, isConfigured: true, isOpen: true,
+            pendingCount: 10,
+            onTap: {}
+        )
+        VaultDoorColumn(
+            width: 148, count: 0, isConfigured: false, isOpen: false,
+            pendingCount: 0,
+            onTap: {}
+        )
     }
-    .frame(height: 360)
+    .frame(height: 460)
     .padding()
     .background(Theme.Surface.base)
 }

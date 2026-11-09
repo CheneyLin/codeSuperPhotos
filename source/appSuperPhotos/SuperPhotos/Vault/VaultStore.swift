@@ -16,13 +16,15 @@ final class VaultStore {
         case notConfigured
     }
 
-    struct ImportSummary {
-        var imported = 0
+    /// 只写入加密副本的阶段结果；不包含任何删除动作。
+    /// 原件删除由任务结算把保险箱与废纸篓合并后一次提交（系统只确认一次）。
+    struct StagedImport {
+        var records: [VaultRecord] = []
         var failed = 0
         var messages: [String] = []
-        var removalPending = false
 
-        var isSuccess: Bool { imported > 0 }
+        var imported: Int { records.count }
+        var isSuccess: Bool { !records.isEmpty }
     }
 
     struct RestoreSummary {
@@ -180,17 +182,17 @@ final class VaultStore {
 
     // MARK: - 入库
 
-    func importAssets(
+    /// 只写加密副本，不删除原件。返回本次成功写入的记录，供任务结算统一提交删除。
+    func stageAssets(
         localIDs: [String],
         kinds: [String: MediaKind],
-        entitlements: EntitlementStore,
-        simulateRemoval: Bool = false
-    ) async -> ImportSummary {
-        var summary = ImportSummary()
-        guard !localIDs.isEmpty else { return summary }
+        entitlements: EntitlementStore
+    ) async -> StagedImport {
+        var staged = StagedImport()
+        guard !localIDs.isEmpty else { return staged }
         guard !isBusy else {
-            summary.messages.append("上一批入库还在进行中")
-            return summary
+            staged.messages.append("上一批入库还在进行中")
+            return staged
         }
 
         isBusy = true
@@ -203,16 +205,14 @@ final class VaultStore {
 
         if Paths.availableCapacity() > 0,
            Paths.availableCapacity() <= VaultLimits.diskSafetyMargin {
-            summary.messages.append("剩余磁盘空间不足，请先清理后再试")
-            return summary
+            staged.messages.append("剩余磁盘空间不足，请先清理后再试")
+            return staged
         }
 
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: localIDs, options: nil)
         var fetchedAssets: [PHAsset] = []
         fetchedAssets.reserveCapacity(assets.count)
         assets.enumerateObjects { asset, _, _ in fetchedAssets.append(asset) }
-
-        var copiedRecords: [VaultRecord] = []
 
         for (index, asset) in fetchedAssets.enumerated() {
             defer { importProgress = Double(index + 1) / Double(max(fetchedAssets.count, 1)) }
@@ -221,8 +221,8 @@ final class VaultStore {
             let kind = kinds[assetID] ?? MediaKind.from(asset: asset)
 
             if records.contains(where: { $0.originLocalID == assetID }) {
-                summary.messages.append("已在保险箱：\(kind.displayName)")
-                summary.failed += 1
+                staged.messages.append("已在保险箱：\(kind.displayName)")
+                staged.failed += 1
                 continue
             }
 
@@ -233,8 +233,8 @@ final class VaultStore {
                 usedBytes: totalBytes
             )
             guard mediaGate.isAllowed else {
-                summary.messages.append(mediaGate.message ?? "未通过权益校验")
-                summary.failed += 1
+                staged.messages.append(mediaGate.message ?? "未通过权益校验")
+                staged.failed += 1
                 continue
             }
 
@@ -242,8 +242,9 @@ final class VaultStore {
             do {
                 copied = try await VaultImporter.copy(asset: asset, kind: kind)
             } catch {
-                summary.messages.append(error.localizedDescription)
-                summary.failed += 1
+                // 单张复制失败只跳过该张，不影响同批其它照片。
+                staged.messages.append(error.localizedDescription)
+                staged.failed += 1
                 continue
             }
 
@@ -259,8 +260,8 @@ final class VaultStore {
                 if let paired = copied.pairedVideoPath {
                     Paths.removeFile(atRelativePath: paired)
                 }
-                summary.messages.append(quota.message ?? "超出保险箱额度")
-                summary.failed += 1
+                staged.messages.append(quota.message ?? "超出保险箱额度")
+                staged.failed += 1
                 continue
             }
 
@@ -279,29 +280,38 @@ final class VaultStore {
 
             records.insert(record, at: 0)
             totalBytes += copied.byteSize
-            copiedRecords.append(record)
-            summary.imported += 1
+            staged.records.append(record)
         }
 
-        // 删除原件是整个流程的最后一步，整批只弹一次系统确认。
-        if !copiedRecords.isEmpty {
-            if simulateRemoval {
-                summary.messages.append("已模拟移出系统相簿（Debug）")
-            } else {
-                do {
-                    try await DeleteService.delete(localIDs: copiedRecords.compactMap(\.originLocalID))
-                } catch {
-                    for record in copiedRecords {
-                        record.pendingRemoval = true
-                    }
-                    try? context.save()
-                    summary.removalPending = true
-                    summary.messages.append("副本已保存，但原件未能移出相簿：\(error.localizedDescription)")
-                }
-            }
-        }
+        return staged
+    }
 
-        return summary
+    /// 系统确认成功后提交：副本保持有效，队列清空。
+    func commitStaged(_ stagedRecords: [VaultRecord]) {
+        guard !stagedRecords.isEmpty else { return }
+        for record in stagedRecords {
+            record.pendingRemoval = false
+        }
+        try? context.save()
+        reload()
+    }
+
+    /// 系统确认取消后回滚：删除本次写入的副本文件、缩略图缓存与 SwiftData 记录，
+    /// 避免留下“系统相册原图 + 保险箱副本”的重复。返回回滚数量。
+    @discardableResult
+    func rollbackStaged(_ stagedRecords: [VaultRecord]) -> Int {
+        guard !stagedRecords.isEmpty else { return 0 }
+        return rollback(stagedRecords)
+    }
+
+    /// 非取消失败：副本保留，标记为待移出原件，供保险箱里手动重试。
+    func markPendingRemoval(_ stagedRecords: [VaultRecord]) {
+        guard !stagedRecords.isEmpty else { return }
+        for record in stagedRecords {
+            record.pendingRemoval = true
+        }
+        try? context.save()
+        reload()
     }
 
     /// 重试“移出相簿”。
@@ -394,6 +404,24 @@ final class VaultStore {
     }
 
     // MARK: - 内部
+
+    /// 系统确认取消：删除刚写入的加密副本并清掉对应记录。
+    @discardableResult
+    private func rollback(_ copiedRecords: [VaultRecord]) -> Int {
+        guard !copiedRecords.isEmpty else { return 0 }
+
+        let ids = Set(copiedRecords.map(\.id))
+        for record in copiedRecords {
+            removeFiles(for: record)
+            thumbnailCache.removeValue(forKey: record.id)
+            context.delete(record)
+        }
+        try? context.save()
+
+        records.removeAll { ids.contains($0.id) }
+        totalBytes = records.reduce(0) { $0 + $1.byteSize }
+        return copiedRecords.count
+    }
 
     private func removeFiles(for record: VaultRecord) {
         Paths.removeFile(atRelativePath: record.relativePath)

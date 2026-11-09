@@ -7,8 +7,11 @@ struct FavoriteAlbumColumn: View {
     let selectedAlbumID: String?
     /// 一次飞入动作进行中，用于给选中的相簿一个强调脉冲。
     let isReceiving: Bool
+    /// 延后中的照片数量，底部入口的角标。
+    let snoozedCount: Int
     let onSelect: (AlbumItem) -> Void
     let onOpenAlbums: () -> Void
+    let onOpenSnoozed: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.appReduceMotion) private var appReduceMotion
@@ -35,6 +38,23 @@ struct FavoriteAlbumColumn: View {
                 }
                 .scrollIndicators(.hidden)
             }
+
+            Button {
+                onOpenSnoozed()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 10, weight: .semibold))
+                    if snoozedCount > 0 {
+                        Text("\(snoozedCount)")
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                    }
+                }
+                .foregroundStyle(snoozedCount > 0 ? Theme.Accent.brass : Theme.Text.tertiary)
+                .frame(maxWidth: .infinity, minHeight: 26)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(snoozedCount > 0 ? "延后中 \(snoozedCount) 张" : "延后管理")
 
             Button {
                 onOpenAlbums()
@@ -130,8 +150,10 @@ struct FavoriteAlbumColumn: View {
         ],
         selectedAlbumID: "1",
         isReceiving: false,
+        snoozedCount: 2,
         onSelect: { _ in },
-        onOpenAlbums: {}
+        onOpenAlbums: {},
+        onOpenSnoozed: {}
     )
     .frame(height: 360)
     .padding()

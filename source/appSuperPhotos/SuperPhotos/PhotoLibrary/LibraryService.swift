@@ -56,10 +56,7 @@ final class LibraryService {
         var fetched: [PhotoItem] = []
         fetched.reserveCapacity(result.count)
         result.enumerateObjects { asset, _, _ in
-            let item = PhotoItem(asset: asset)
-            if effectiveFilter.mediaKind == nil || item.kind == effectiveFilter.mediaKind {
-                fetched.append(item)
-            }
+            fetched.append(PhotoItem(asset: asset))
         }
 
         if !excludedLocalIDs.isEmpty {
@@ -76,10 +73,47 @@ final class LibraryService {
         await refresh(activeFilter: newFilter)
     }
 
-    /// 删除并刷新；系统确认由 performChanges 触发一次。
-    func delete(localIDs: [String]) async throws {
-        try await DeleteService.delete(localIDs: localIDs)
+    /// 任务快照：按当前排序取前 `limit` 张，排除保险箱资产。
+    func taskItems(albumLocalID: String?, limit: Int) -> [PhotoItem] {
+        guard accessState.canBrowse, limit > 0 else { return [] }
+
+        var taskFilter = LibraryFilter.all
+        taskFilter.albumLocalID = albumLocalID
+        let result = fetchResult(for: taskFilter)
+        let excluded = excludedLocalIDs
+
+        var fetched: [PhotoItem] = []
+        fetched.reserveCapacity(min(limit, result.count))
+        result.enumerateObjects { asset, _, stop in
+            if fetched.count >= limit {
+                stop.pointee = true
+                return
+            }
+            guard !excluded.contains(asset.localIdentifier) else { return }
+            fetched.append(PhotoItem(asset: asset))
+        }
+        return fetched
+    }
+
+    /// 按给定顺序还原资产；系统里已不存在的资产会被跳过。
+    static func items(for assetIDs: [String]) -> [PhotoItem] {
+        guard !assetIDs.isEmpty else { return [] }
+
+        let result = PHAsset.fetchAssets(withLocalIdentifiers: assetIDs, options: nil)
+        var map: [String: PhotoItem] = [:]
+        map.reserveCapacity(result.count)
+        result.enumerateObjects { asset, _, _ in
+            map[asset.localIdentifier] = PhotoItem(asset: asset)
+        }
+        return assetIDs.compactMap { map[$0] }
+    }
+
+    /// 删除并刷新；整批一次 performChanges，系统只确认一次。
+    @discardableResult
+    func delete(localIDs: [String]) async throws -> DeleteOutcome {
+        let outcome = try await DeleteService.delete(localIDs: localIDs)
         await refresh()
+        return outcome
     }
 
     // MARK: - 查询
@@ -89,15 +123,6 @@ final class LibraryService {
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         // 尊重系统隐藏；保险箱资产另行排除。
         options.predicate = NSPredicate(format: "isHidden == NO")
-
-        if let mediaKind = filter.mediaKind {
-            switch mediaKind {
-            case .video:
-                options.predicate = NSPredicate(format: "isHidden == NO AND mediaType == %d", PHAssetMediaType.video.rawValue)
-            case .photo, .livePhoto, .screenshot, .panorama, .animated:
-                options.predicate = NSPredicate(format: "isHidden == NO AND mediaType == %d", PHAssetMediaType.image.rawValue)
-            }
-        }
 
         if let albumID = filter.albumLocalID,
            let collection = PHAssetCollection.fetchAssetCollections(

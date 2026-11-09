@@ -30,18 +30,12 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
     }()
 }
 
-/// 查询范围：媒体类型 + 相簿。
+/// 查询范围：只按相簿筛选，媒体类型不再参与取数。
 struct LibraryFilter: Equatable, Sendable {
-    var mediaKind: MediaKind?
     var albumLocalID: String?
     var albumTitle: String
 
-    static let all = LibraryFilter(mediaKind: nil, albumLocalID: nil, albumTitle: "全部照片")
+    static let all = LibraryFilter(albumLocalID: nil, albumTitle: "全部照片")
 
-    var title: String {
-        if let mediaKind {
-            return "\(albumTitle) · \(mediaKind.displayName)"
-        }
-        return albumTitle
-    }
+    var title: String { albumTitle }
 }

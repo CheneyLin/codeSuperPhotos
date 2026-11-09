@@ -1,9 +1,9 @@
 import Foundation
 
-/// 待销毁批量的触发策略；阈值集中在这里，方便后续调整。
+/// 待销毁批量的触发策略；阈值从 `BatchPolicy` 读取，与保险箱入库共用。
 enum DestroyPolicy {
     /// 累计到该张数时自动点亮销毁指示灯并弹出确认。
-    static let autoConfirmThreshold = 10
+    static let autoConfirmThreshold = BatchPolicy.autoConfirmThreshold
 }
 
 /// 销毁流程的显式状态机；只由 DestroyCoordinator 推进。

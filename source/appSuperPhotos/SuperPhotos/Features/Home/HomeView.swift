@@ -14,6 +14,14 @@ struct HomeView: View {
 
     @State private var library = LibraryService()
     @State private var albumService = AlbumService()
+    /// 任务式整理：一次最多 100 张，进度与决策持久化。
+    @State private var task = CleaningTaskStore()
+    /// 是否进入三栏工作区；桌面首屏不展示照片。
+    @State private var isWorkspacePresented = false
+    @State private var isAlbumPickerPresented = false
+    @State private var isExecutingTaskEnd = false
+    @State private var settlement: TaskSettlement?
+
     @State private var isSettingsPresented = false
     @State private var settingsInitialRoute: SettingsRoute?
     @State private var isDesignSystemPresented = false
@@ -24,14 +32,17 @@ struct HomeView: View {
 
     @State private var isVaultPresented = false
     @State private var isVaultDrawerPresented = false
-    @State private var isVaultImportConfirmPresented = false
-    @State private var pendingVaultImportIDs: [String] = []
-    /// 左滑存入保险箱时同步打开箱门；确认弹窗出现后自动合上。
+    /// 左滑存入保险箱时同步打开箱门；入队动画结束后自动合上。
     @State private var vaultDoorOpen = false
     /// 右滑存入收藏夹时给选中相簿一个强调脉冲。
     @State private var favoritesReceiving = false
+    /// 延后存储：到期前不再进入新任务。
+    @State private var snooze = SnoozeStore()
+    /// 全屏查看的启动目标；nil 表示未打开。
+    @State private var fullscreenRequest: FullscreenRequest?
+    @State private var isSnoozeListPresented = false
 
-    /// 当前照片的稳定标识；待销毁累积变化时仍能指向同一张。
+    /// 当前照片的稳定标识；决策记录后仍能指向同一张。
     @State private var currentID: String?
     @State private var isZoomed = false
     @State private var zoomScale: CGFloat = 1
@@ -41,11 +52,7 @@ struct HomeView: View {
     @State private var discardRequest = 0
     /// UI 测试用：自增触发一次舞台轻点。
     @State private var tapRequest = 0
-    @State private var isDestroyConfirmPresented = false
-    @State private var hasAutoPromptedBatch = false
     @State private var toastMessage: ToastMessage?
-    /// 销毁开始前启动的字节采样；成功后在结果回调里取用。
-    @State private var pendingDestroySampleTask: Task<ByteSample, Never>?
 
     var body: some View {
         NavigationStack {
@@ -62,7 +69,11 @@ struct HomeView: View {
                         library.openSettings()
                     }
                 case .authorized, .limited:
-                    libraryContent
+                    if isWorkspacePresented, task.isActive {
+                        taskWorkspace
+                    } else {
+                        deskView
+                    }
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -84,6 +95,17 @@ struct HomeView: View {
                     requestedRoute: $settingsInitialRoute
                 )
             }
+            .sheet(isPresented: $isAlbumPickerPresented) {
+                TaskAlbumPickerView(
+                    allPhotoCount: albumService.allPhotoCount,
+                    albums: albumService.userAlbums,
+                    onSelect: { album in
+                        isAlbumPickerPresented = false
+                        startTask(album: album)
+                    },
+                    onClose: { isAlbumPickerPresented = false }
+                )
+            }
             .fullScreenCover(isPresented: $isDesignSystemPresented) {
                 NavigationStack {
                     DesignSystemPreviewView()
@@ -92,45 +114,75 @@ struct HomeView: View {
             .fullScreenCover(isPresented: $isVaultPresented) {
                 VaultLockView()
             }
+            .fullScreenCover(item: $fullscreenRequest) { request in
+                PhotoFullscreenView(
+                    items: visibleItems,
+                    startID: request.id,
+                    thumbnails: library.thumbnails,
+                    onChangeCurrent: { id in
+                        currentID = id
+                        isZoomed = false
+                        zoomScale = 1
+                    },
+                    onClose: { fullscreenRequest = nil }
+                )
+            }
+            .sheet(isPresented: $isSnoozeListPresented) {
+                SnoozeListView(
+                    records: snooze.records,
+                    thumbnails: library.thumbnails,
+                    onWake: { id in
+                        wakeUpSnoozed(id: id)
+                    },
+                    onWakeAll: {
+                        wakeAllSnoozed()
+                    },
+                    onClose: { isSnoozeListPresented = false }
+                )
+            }
+            .fullScreenCover(item: $settlement) { value in
+                TaskSettlementView(
+                    settlement: value,
+                    onNext: {
+                        settlement = nil
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(420))
+                            isAlbumPickerPresented = true
+                        }
+                    },
+                    onClose: { settlement = nil }
+                )
+            }
             .fullScreenCover(isPresented: $isOnboardingPresented) {
                 OnboardingView {
                     hasCompletedOnboarding = true
                     isOnboardingPresented = false
                 }
             }
-            .alert("存入保险箱", isPresented: $isVaultImportConfirmPresented) {
-                Button("取消", role: .cancel) {
-                    pendingVaultImportIDs = []
-                }
-                Button("存入") {
-                    runVaultImport()
-                }
-            } message: {
-                Text("将复制原图到 App 保险箱，并从系统相簿删除这些照片（会进入『最近删除』保留 30 天）。")
-            }
-            .alert(
-                "确认销毁 \(destroy.tickets.count) 张照片？",
-                isPresented: $isDestroyConfirmPresented
-            ) {
-                Button("取消", role: .cancel) {}
-                Button("销毁", role: .destructive) {
-                    startDestroying(ids: destroy.tickets.map(\.id))
-                }
-            } message: {
-                Text("确认后交由系统相簿删除；原件进入『最近删除』，保留 30 天。")
-            }
             .task {
                 library.excludedLocalIDs = vault.originLocalIDs
                 await library.start()
                 await albumService.load()
                 syncDefaultAlbum()
+                restoreTaskIfNeeded()
                 clampCurrentID()
                 presentOnboardingIfNeeded()
                 await runUITestHooksIfNeeded()
             }
+            .task {
+                // 延后到期自动回到待整理池：每分钟清理一次过期记录。
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(60))
+                    snooze.purgeExpired()
+                }
+            }
             .onChange(of: library.accessState) { _, state in
-                if state.canBrowse, !hasCompletedOnboarding {
-                    isOnboardingPresented = true
+                if state.canBrowse {
+                    restoreTaskIfNeeded()
+                    clampCurrentID()
+                    if !hasCompletedOnboarding {
+                        isOnboardingPresented = true
+                    }
                 }
             }
             .onChange(of: library.revision) { _, _ in
@@ -145,12 +197,6 @@ struct HomeView: View {
             }
             .onChange(of: vault.revision) { _, _ in
                 library.excludedLocalIDs = vault.originLocalIDs
-            }
-            .onChange(of: destroy.tickets.count) { _, count in
-                handlePendingCountChange(count)
-            }
-            .onChange(of: destroy.lastOutcome) { _, outcome in
-                Task { await handleDestroyOutcome(outcome) }
             }
             .task(id: currentItem?.id) {
                 guard let id = currentItem?.id else { return }
@@ -168,42 +214,19 @@ struct HomeView: View {
     // MARK: - 顶部
 
     private var headerBar: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            Button {
-                openVaultPreview()
-            } label: {
-                Image(systemName: vault.isConfigured ? "lock.shield.fill" : "lock.shield")
-            }
-            .buttonStyle(NeuIconButtonStyle(tint: Theme.Accent.brass))
-            .overlay(alignment: .topTrailing) {
-                if vault.records.count > 0 {
-                    Text("\(min(vault.records.count, 99))")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Theme.Surface.base)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Theme.Accent.brass, in: Capsule())
-                        .offset(x: 4, y: -4)
+        // 左：保险箱入口；中：工作区内显示销毁方式主控；右：设置。
+        HStack(spacing: Theme.Spacing.sm) {
+            vaultHeaderButton
+
+            Spacer(minLength: Theme.Spacing.sm)
+
+            if isWorkspacePresented, task.isActive {
+                DestroyMachineSelector(machine: destroy.machine) { kind in
+                    destroy.switchMachine(kind)
                 }
             }
-            .accessibilityLabel("私密保险箱，已存 \(vault.records.count) 件")
 
-            Text("SuperPhotos")
-                .font(Theme.Typography.title)
-                .foregroundStyle(Theme.Text.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-
-            Text(entitlements.isVIP ? "VIP（模拟）" : "免费版")
-                .font(Theme.Typography.caption.weight(.semibold))
-                .foregroundStyle(entitlements.isVIP ? Theme.Accent.fire : Theme.Text.secondary)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, Theme.Spacing.sm)
-                .padding(.vertical, 3)
-                .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.chip)
-
-            Spacer()
+            Spacer(minLength: Theme.Spacing.sm)
 
             Button {
                 isSettingsPresented = true
@@ -218,9 +241,44 @@ struct HomeView: View {
         .background(Theme.Surface.base)
     }
 
-    // MARK: - 主内容
+    private var vaultHeaderButton: some View {
+        Button {
+            openVaultPreview()
+        } label: {
+            Image(systemName: vault.isConfigured ? "lock.shield.fill" : "lock.shield")
+        }
+        .buttonStyle(NeuIconButtonStyle(tint: Theme.Accent.brass))
+        .overlay(alignment: .topTrailing) {
+            if vault.records.count > 0 {
+                Text("\(min(vault.records.count, 99))")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.Surface.base)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Theme.Accent.brass, in: Capsule())
+                    .offset(x: 4, y: -4)
+            }
+        }
+        .accessibilityLabel("私密保险箱，已存 \(vault.records.count) 件")
+    }
 
-    private var libraryContent: some View {
+    // MARK: - 桌面
+
+    private var deskView: some View {
+        TaskDeskView(
+            isTaskActive: task.isActive,
+            isTaskFinished: task.isFinished,
+            albumTitle: task.albumTitle,
+            processed: task.processedCount,
+            total: task.totalCount,
+            onStart: { isAlbumPickerPresented = true },
+            onResume: { enterWorkspace() }
+        )
+    }
+
+    // MARK: - 三栏工作区
+
+    private var taskWorkspace: some View {
         GeometryReader { proxy in
             // 两侧各 20%，中间 60%；窄屏（Duo 外屏等）下两侧收到 64pt，保证中间可读。
             let sideWidth = min(148, max(64, proxy.size.width * 0.2))
@@ -234,15 +292,17 @@ struct HomeView: View {
                     .padding(.bottom, Theme.Spacing.sm)
                 }
 
-                FilterBar(
-                    selectedKind: library.filter.mediaKind,
-                    albumTitle: library.filter.albumTitle,
-                    showsAlbumButton: true,
-                    onSelectKind: { applyKind($0) },
-                    onOpenAlbums: { openAlbums() }
+                TaskProgressHeader(
+                    albumTitle: task.albumTitle,
+                    processed: task.processedCount,
+                    total: task.totalCount,
+                    isFinished: task.isFinished,
+                    isExecuting: isExecutingTaskEnd,
+                    onPause: { pauseTask() },
+                    onFinish: {
+                        Task { await executeTaskEnd() }
+                    }
                 )
-
-                stageHeader
 
                 HStack(alignment: .top, spacing: Theme.Spacing.sm) {
                     VaultDoorColumn(
@@ -250,15 +310,12 @@ struct HomeView: View {
                         count: vault.records.count,
                         isConfigured: vault.isConfigured,
                         isOpen: vaultDoorOpen,
+                        pendingCount: task.vaultCount,
                         onTap: { openVaultPreview() }
                     )
 
                     Group {
-                        if library.items.isEmpty {
-                            emptyState
-                        } else {
-                            stageSection(sideWidth: sideWidth)
-                        }
+                        stageSection(sideWidth: sideWidth)
                     }
                     .frame(maxWidth: .infinity)
 
@@ -267,8 +324,10 @@ struct HomeView: View {
                         albums: albumService.userAlbums,
                         selectedAlbumID: settings.defaultAlbumID,
                         isReceiving: favoritesReceiving,
+                        snoozedCount: snooze.count,
                         onSelect: { selectDefaultAlbum($0) },
-                        onOpenAlbums: { openAlbums() }
+                        onOpenAlbums: { openAlbums() },
+                        onOpenSnoozed: { isSnoozeListPresented = true }
                     )
                 }
                 .padding(.horizontal, Theme.Spacing.md)
@@ -293,14 +352,19 @@ struct HomeView: View {
                 items: visibleItems,
                 currentIndex: stageIndex,
                 thumbnails: library.thumbnails,
-                isInteractionEnabled: !isAlbumsDrawerPresented && !isVaultDrawerPresented,
-                canDiscard: destroy.tickets.count < entitlements.batchLimit(),
+                isInteractionEnabled: !isAlbumsDrawerPresented
+                    && !isVaultDrawerPresented
+                    && !isExecutingTaskEnd,
+                canDiscard: task.isActive && !isExecutingTaskEnd,
                 canFavorite: settings.defaultAlbumID != nil,
                 discardRequest: discardRequest,
                 tapRequest: tapRequest,
                 sideDropOffset: sideWidth + Theme.Spacing.sm + 26,
                 onAdvance: { id in
                     advanceCurrent(from: id)
+                },
+                onOpenFullscreen: { id in
+                    openFullscreen(id: id)
                 },
                 onVaultStore: { id in
                     vaultSwipe(id)
@@ -316,6 +380,9 @@ struct HomeView: View {
                 },
                 onDiscard: { id in
                     discardCurrent(id: id)
+                },
+                onSnooze: { id, days in
+                    snoozeCurrent(id: id, days: days)
                 },
                 onZoomChanged: { zoomed, scale in
                     isZoomed = zoomed
@@ -338,7 +405,7 @@ struct HomeView: View {
 
             infoBar
 
-            Text("轻点看下一张 · 左滑存保险箱 · 右滑存收藏夹 · 下滑待销毁")
+            Text("轻点全屏 · 上滑延后 · 左滑保险箱 · 右滑收藏夹 · 下滑待销毁")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
                 .padding(.bottom, Theme.Spacing.sm)
@@ -356,7 +423,7 @@ struct HomeView: View {
     // MARK: - 销毁坞
 
     private var isDockExpanded: Bool {
-        !destroy.tickets.isEmpty || destroy.phase.isBusy
+        task.destroyCount > 0
     }
 
     private var dockSection: some View {
@@ -364,27 +431,11 @@ struct HomeView: View {
             machine: destroy.machine,
             phase: destroy.phase,
             progress: destroy.progress,
-            tickets: destroy.tickets,
-            pendingCount: destroy.pendingCount,
-            autoConfirmThreshold: DestroyPolicy.autoConfirmThreshold,
-            thumbnails: library.thumbnails,
+            pendingCount: task.destroyCount,
             isExpanded: isDockExpanded,
             bottomInset: max(0, bottomSafeInset - 8),
-            onSwitchMachine: { kind in
-                destroy.switchMachine(kind)
-            },
             onTapMouth: {
                 requestDiscardCurrent()
-            },
-            onStart: {
-                guard !destroy.tickets.isEmpty else { return }
-                isDestroyConfirmPresented = true
-            },
-            onCancel: {
-                destroy.cancel()
-            },
-            onClear: {
-                destroy.clearQueue()
             }
         )
     }
@@ -437,9 +488,14 @@ struct HomeView: View {
 
             AlbumsPanel(
                 albums: albumService,
-                selectedAlbumID: library.filter.albumLocalID,
+                selectedAlbumID: settings.defaultAlbumID,
                 showsCloseButton: true,
-                onSelect: { selectAlbum($0) },
+                onSelect: { item in
+                    if let item {
+                        selectDefaultAlbum(item)
+                    }
+                    closeAlbums()
+                },
                 onClose: { closeAlbums() }
             )
             .frame(width: min(width * 0.78, Theme.Metrics.drawerMaxWidth))
@@ -455,25 +511,6 @@ struct HomeView: View {
             .transition(.move(edge: .trailing))
         }
         .transition(.opacity)
-    }
-
-    private var stageHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(library.filter.title)
-                .font(Theme.Typography.headline)
-                .foregroundStyle(Theme.Text.primary)
-
-            Spacer()
-
-            if !library.items.isEmpty {
-                Text(pageLabel)
-                    .font(Theme.Typography.caption.monospacedDigit())
-                    .foregroundStyle(Theme.Text.secondary)
-            }
-        }
-        .padding(.horizontal, Theme.Spacing.page)
-        .padding(.top, Theme.Spacing.md)
-        .padding(.bottom, Theme.Spacing.sm)
     }
 
     private var infoBar: some View {
@@ -497,25 +534,6 @@ struct HomeView: View {
         .padding(.horizontal, Theme.Spacing.page)
     }
 
-    private var emptyState: some View {
-        VStack(spacing: Theme.Spacing.md) {
-            Image(systemName: "photo.on.rectangle")
-                .font(.system(size: 28, weight: .regular))
-                .foregroundStyle(Theme.Text.tertiary)
-            Text("这个范围里没有照片")
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.Text.secondary)
-
-            if library.filter != .all {
-                Button("清除筛选") {
-                    Task { await library.setFilter(.all) }
-                }
-                .buttonStyle(NeuButtonStyle(variant: .raisedSmall, cornerRadius: Theme.Radius.chip))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func presentOnboardingIfNeeded() {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UI_TEST_ONBOARDING_DONE"] == "1" { return }
@@ -526,15 +544,10 @@ struct HomeView: View {
 
     // MARK: - 状态
 
-    /// 待销毁累积中的照片不再出现在舞台上。
-    private var pendingIDs: Set<String> {
-        Set(destroy.tickets.map(\.id))
-    }
-
-    /// 舞台上仍可浏览的照片序列。
+    /// 舞台上仍可处理的照片序列：即任务里还没决定去向的照片。
     private var visibleItems: [PhotoItem] {
-        let pending = pendingIDs
-        return library.items.filter { !pending.contains($0.id) }
+        guard task.isActive else { return [] }
+        return task.remainingItems
     }
 
     private var stageIndex: Int {
@@ -555,16 +568,6 @@ struct HomeView: View {
         return visible.first
     }
 
-    private var pageLabel: String {
-        let position = visibleItems.isEmpty ? 0 : min(stageIndex + 1, visibleItems.count)
-        let total = visibleItems.count
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        let p = formatter.string(from: NSNumber(value: position)) ?? "\(position)"
-        let t = formatter.string(from: NSNumber(value: total)) ?? "\(total)"
-        return "\(p) / \(t)"
-    }
-
     // MARK: - 动作
 
     private func requestAccess() {
@@ -573,28 +576,221 @@ struct HomeView: View {
         Task {
             await library.requestAccess()
             isRequestingAccess = false
+            restoreTaskIfNeeded()
             clampCurrentID()
             await albumService.load(force: true)
         }
     }
 
-    // MARK: 筛选
+    // MARK: 任务
 
-    private func applyKind(_ kind: MediaKind?) {
-        var filter = library.filter
-        filter.mediaKind = kind
-        Task { await library.setFilter(filter) }
-        resetStage()
-    }
+    private func startTask(album: AlbumItem?) {
+        let albumID = album?.id
+        let title = album?.title ?? "全部照片"
 
-    private func selectAlbum(_ item: AlbumItem?) {
-        var filter = library.filter
-        filter.albumLocalID = item?.id
-        filter.albumTitle = item?.title ?? "全部照片"
-        Task { await library.setFilter(filter) }
+        // 延后未到期的照片不进入本批；多取一些再截断，保证凑满 100。
+        let snoozedIDs = snooze.activeIDs
+        let rawItems = library.taskItems(
+            albumLocalID: albumID,
+            limit: TaskPolicy.batchSize + snoozedIDs.count
+        )
+        let items = Array(
+            rawItems
+                .filter { !snoozedIDs.contains($0.id) }
+                .prefix(TaskPolicy.batchSize)
+        )
+        guard !items.isEmpty else {
+            toastMessage = ToastMessage(
+                text: "这个相簿里没有可整理的照片",
+                kind: .warning
+            )
+            return
+        }
+
+        if task.isActive {
+            let hadProgress = task.processedCount > 0
+            task.reset()
+            if hadProgress {
+                toastMessage = ToastMessage(text: "已放弃上一批未执行的决策", kind: .info)
+            }
+        }
         resetStage()
+
+        task.start(albumLocalID: albumID, albumTitle: title, items: items)
+        currentID = task.remainingItems.first?.id
+        isWorkspacePresented = true
         closeAlbums()
+        closeVaultDrawer()
+
+        if task.isFinished {
+            Task { await executeTaskEnd() }
+        }
     }
+
+    private func enterWorkspace() {
+        guard task.isActive else {
+            isAlbumPickerPresented = true
+            return
+        }
+        clampCurrentID()
+        isWorkspacePresented = true
+        if task.isFinished {
+            Task { await executeTaskEnd() }
+        }
+    }
+
+    private func pauseTask() {
+        isWorkspacePresented = false
+        isAlbumsDrawerPresented = false
+        isVaultDrawerPresented = false
+        resetStage()
+        toastMessage = ToastMessage(text: "已保留本批进度，下次可继续", kind: .info)
+    }
+
+    private func restoreTaskIfNeeded() {
+        guard task.isActive, library.accessState.canBrowse else { return }
+        let restored = LibraryService.items(for: task.assetIDs)
+        task.restore(from: restored)
+        if !task.isActive {
+            toastMessage = ToastMessage(
+                text: "上次整理的照片已不在相册，任务已清空",
+                kind: .info
+            )
+        }
+    }
+
+    private func handleTaskProgress() {
+        if task.isFinished {
+            // 留出最后一张的退场/关门动画时间，再进入统一结算。
+            Task {
+                try? await Task.sleep(for: .milliseconds(420))
+                await executeTaskEnd()
+            }
+        } else {
+            clampCurrentID()
+        }
+    }
+
+    // MARK: 任务结算
+
+    /// 任务结束：保险箱队列先复制加密，废纸篓队列交给系统删除。
+    /// 不再弹 App 自建确认框；两个队列都整批一次提交，系统各弹一次确认。
+    private func executeTaskEnd() async {
+        guard task.isActive, task.isFinished, !isExecutingTaskEnd else { return }
+        isExecutingTaskEnd = true
+        defer { isExecutingTaskEnd = false }
+
+        let total = task.totalCount
+        let kept = task.keepCount
+        let snoozed = task.snoozeCount
+        let vaultIDs = task.vaultIDs
+        let destroyIDs = task.destroyIDs
+        let vaultKinds = task.kinds(for: vaultIDs)
+        let albumTitle = task.albumTitle
+
+        var encrypted = 0
+        var deleted = 0
+        var vaultCancelled = 0
+        var destroyCancelled = 0
+        var vaultFailed = 0
+        var destroyFailed = 0
+
+        let sampleTask: Task<ByteSample, Never>? = destroyIDs.isEmpty
+            ? nil
+            : Task { await StatisticsService.sampleBytes(localIDs: destroyIDs) }
+
+        // 1) 加密阶段：只写副本，不删除原件。单张复制失败只跳过该张。
+        var stagedRecords: [VaultRecord] = []
+        if !vaultIDs.isEmpty {
+            let staged = await vault.stageAssets(
+                localIDs: vaultIDs,
+                kinds: vaultKinds,
+                entitlements: entitlements
+            )
+            stagedRecords = staged.records
+            vaultFailed = vaultIDs.count - stagedRecords.count
+        }
+
+        // 2) 合并删除：保险箱成功副本对应的原件 + 废纸篓，一次 performChanges。
+        //    系统只会弹一次确认框；已不在相册的资产由 DeleteService 预剔，不拖垮整批。
+        let stagedOriginIDs = stagedRecords.compactMap(\.originLocalID)
+        let combinedIDs = stagedOriginIDs + destroyIDs
+        var cancelled = false
+        if !combinedIDs.isEmpty {
+            do {
+                let outcome = try await performCombinedDelete(combinedIDs)
+                let removedSet = Set(outcome.deletedIDs + outcome.missingIDs)
+                encrypted = stagedOriginIDs.filter { removedSet.contains($0) }.count
+                deleted = destroyIDs.filter { removedSet.contains($0) }.count
+            } catch {
+                if DeleteService.isUserCancelled(error) {
+                    // 系统框取消：回滚本次写入的全部副本，两个队列都按取消计入。
+                    cancelled = true
+                    vaultCancelled = vault.rollbackStaged(stagedRecords)
+                    destroyCancelled = destroyIDs.count
+                } else {
+                    // 非取消失败：副本保留并标记待移出，结算页分别给出加密数与删除失败数。
+                    vault.markPendingRemoval(stagedRecords)
+                    encrypted = stagedRecords.count
+                    destroyFailed = destroyIDs.count
+                }
+            }
+        }
+
+        // 3) 成功路径提交副本，统计与刷新。
+        if !cancelled, destroyFailed == 0 {
+            vault.commitStaged(stagedRecords)
+        }
+        if encrypted > 0 {
+            statistics.recordImport(count: encrypted)
+            sound.play(.vaultImport)
+        }
+
+        let sample = await sampleTask?.value ?? ByteSample()
+        if deleted > 0 {
+            statistics.recordDestroy(
+                count: deleted,
+                sample: sample.scoped(to: destroyIDs),
+                machine: destroy.machine
+            )
+            sound.play(.destroyFinish)
+        }
+
+        library.excludedLocalIDs = vault.originLocalIDs
+        await library.refresh()
+
+        let cancelledCount = vaultCancelled + destroyCancelled
+        let failedCount = vaultFailed + destroyFailed
+
+        let result = TaskSettlement(
+            albumTitle: albumTitle,
+            total: total,
+            kept: kept,
+            snoozed: snoozed,
+            encrypted: encrypted,
+            deleted: deleted,
+            cancelled: cancelledCount,
+            failed: failedCount
+        )
+
+        task.reset()
+        resetStage()
+        isWorkspacePresented = false
+        settlement = result
+    }
+
+    /// 保险箱原件与废纸篓合并后的唯一一次删除请求；Debug 的模拟开关沿用原有行为。
+    private func performCombinedDelete(_ ids: [String]) async throws -> DeleteOutcome {
+        #if DEBUG
+        if DebugOptions.isSimulatingDestroy {
+            try? await Task.sleep(for: .milliseconds(200))
+            return DeleteOutcome(deletedIDs: ids, missingIDs: [])
+        }
+        #endif
+        return try await library.delete(localIDs: ids)
+    }
+
+    // MARK: 决策
 
     private func resetStage() {
         currentID = nil
@@ -615,7 +811,7 @@ struct HomeView: View {
         }
     }
 
-    /// 保证 currentID 指向仍可见的照片；筛选/照片库刷新后调用。
+    /// 保证 currentID 指向仍可处理的照片；决策/照片库刷新后调用。
     private func clampCurrentID() {
         let visible = visibleItems
         guard !visible.isEmpty else {
@@ -626,22 +822,24 @@ struct HomeView: View {
         currentID = visible.first?.id
     }
 
-    /// 轻点换牌：以舞台实际动画的那张照片为锚点推进，避免与派生状态分叉。
+    /// 下一张 = 保留：记录决策并把舞台推进到下一张。
     private func advanceCurrent(from id: String) {
+        guard task.isActive, !isExecutingTaskEnd else { return }
         let visible = visibleItems
-        guard let index = visible.firstIndex(where: { $0.id == id }) else {
+        guard visible.contains(where: { $0.id == id }) else {
             clampCurrentID()
             return
         }
-        let nextIndex = index + 1
-        guard visible.indices.contains(nextIndex) else { return }
 
-        currentID = visible[nextIndex].id
+        let nextID = idAfterRemoving(id)
+        task.record(id: id, decision: .keep)
+        currentID = nextID
         isZoomed = false
         zoomScale = 1
         #if DEBUG
-        NSLog("[stage] advance %@ -> %@", id, visible[nextIndex].id)
+        NSLog("[task] keep %@ -> %@", id, nextID ?? "nil")
         #endif
+        handleTaskProgress()
     }
 
     /// 移除一张之后舞台应该停在哪：优先后一张，若已到末尾则回到前一张。
@@ -655,6 +853,44 @@ struct HomeView: View {
             return visible[index - 1].id
         }
         return nil
+    }
+
+    // MARK: 全屏与延后
+
+    private func openFullscreen(id: String) {
+        guard visibleItems.contains(where: { $0.id == id }) else { return }
+        fullscreenRequest = FullscreenRequest(id: id)
+    }
+
+    /// 上滑落库：写入到期时间并记录“延后”决策，本批不再出现。
+    private func snoozeCurrent(id: String, days: Int) {
+        guard task.isActive, !isExecutingTaskEnd else { return }
+        guard let item = task.items.first(where: { $0.id == id }) else { return }
+
+        let nextID = idAfterRemoving(id)
+        snooze.snooze(id: item.id, days: days)
+        task.record(id: id, decision: .snooze)
+
+        currentID = nextID
+        isZoomed = false
+        zoomScale = 1
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        toastMessage = ToastMessage(
+            text: "已延后 \(days) 天，本批不再出现",
+            kind: .success
+        )
+        handleTaskProgress()
+    }
+
+    private func wakeUpSnoozed(id: String) {
+        snooze.unsnooze(id: id)
+        toastMessage = ToastMessage(text: "已恢复，将出现在下一批", kind: .info)
+    }
+
+    private func wakeAllSnoozed() {
+        guard snooze.count > 0 else { return }
+        snooze.wakeAll()
+        toastMessage = ToastMessage(text: "全部恢复，将出现在下一批", kind: .info)
     }
 
     // MARK: 收藏夹
@@ -679,18 +915,26 @@ struct HomeView: View {
         }
     }
 
-    /// 右滑：把照片加入默认相簿，成功后推进到下一张。
+    /// 右滑：加入默认相簿，同时记录“保留”决策并推进。
     private func favoriteSwipe(_ id: String) {
+        guard task.isActive, !isExecutingTaskEnd else { return }
         guard let albumID = settings.defaultAlbumID else {
             toastMessage = ToastMessage(text: "先在右侧选择一个默认收藏夹", kind: .warning)
             return
         }
 
         favoritesReceiving = true
+
+        let nextID = idAfterRemoving(id)
+        task.record(id: id, decision: .keep)
+        currentID = nextID
+        isZoomed = false
+        zoomScale = 1
+        handleTaskProgress()
+
         Task {
             do {
                 try await albumService.addAssets([id], toAlbum: albumID)
-                advanceCurrent(from: id)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 toastMessage = ToastMessage(
                     text: "已加入「\(settings.defaultAlbumTitle)」",
@@ -712,8 +956,16 @@ struct HomeView: View {
 
     // MARK: 保险箱
 
-    /// 左滑：箱门立即打开，照片飞入后再走既有的复制+删除确认流程。
+    /// 左滑：只记录“保险箱”决策并打开箱门；任务结束才统一加密。
     private func vaultSwipe(_ id: String) {
+        guard task.isActive, !isExecutingTaskEnd else { return }
+
+        let nextID = idAfterRemoving(id)
+        task.record(id: id, decision: .vault)
+        currentID = nextID
+        isZoomed = false
+        zoomScale = 1
+
         withAnimation(
             reduceMotion ? .easeOut(duration: 0.14) : .easeOut(duration: 0.28)
         ) {
@@ -721,14 +973,13 @@ struct HomeView: View {
         }
 
         Task {
-            // 让飞入动效先完成，再弹确认，避免弹窗遮住“门开照片进”的过程。
-            try? await Task.sleep(for: .milliseconds(360))
-            requestVaultImport(ids: [id])
-            try? await Task.sleep(for: .milliseconds(520))
+            try? await Task.sleep(for: .milliseconds(620))
             withAnimation(.easeOut(duration: 0.25)) {
                 vaultDoorOpen = false
             }
         }
+
+        handleTaskProgress()
     }
 
     private func openVaultPreview() {
@@ -750,195 +1001,63 @@ struct HomeView: View {
         isVaultPresented = true
     }
 
+    /// 抽屉里的“存入当前照片”走同一条保险箱决策。
     private func storeCurrentInVault() {
         guard let item = currentItem else { return }
         closeVaultDrawer()
-        requestVaultImport(ids: [item.id])
-    }
-
-    private func requestVaultImport(ids: [String]) {
-        guard !ids.isEmpty else { return }
-        pendingVaultImportIDs = ids
-        isVaultImportConfirmPresented = true
-    }
-
-    private func runVaultImport() {
-        let ids = pendingVaultImportIDs
-        pendingVaultImportIDs = []
-        guard !ids.isEmpty else { return }
-
-        // 删除完成后这张就不在列表里了，先记下舞台应该停在哪。
-        let nextID = ids.first.flatMap { idAfterRemoving($0) }
-        let kinds = Dictionary(uniqueKeysWithValues: library.items.map { ($0.id, $0.kind) })
-        Task {
-            let summary = await vault.importAssets(
-                localIDs: ids,
-                kinds: kinds,
-                entitlements: entitlements,
-                simulateRemoval: simulateVaultRemoval
-            )
-            library.excludedLocalIDs = vault.originLocalIDs
-            await library.refresh()
-            handleVaultImportSummary(summary, nextID: nextID)
-        }
-    }
-
-    private var simulateVaultRemoval: Bool {
-        #if DEBUG
-        DebugOptions.isSimulatingDestroy
-        #else
-        false
-        #endif
-    }
-
-    private func handleVaultImportSummary(_ summary: VaultStore.ImportSummary, nextID: String?) {
-        if summary.imported > 0 {
-            statistics.recordImport(count: summary.imported)
-            sound.play(.vaultImport)
-            let base = "已存入保险箱 \(summary.imported) 件"
-            if summary.removalPending {
-                toastMessage = ToastMessage(
-                    text: base + "；原件仍在相册，可在房间内重试移出",
-                    kind: .warning
-                )
-            } else {
-                toastMessage = ToastMessage(
-                    text: base + "，原件已移入系统『最近删除』",
-                    kind: .success
-                )
-            }
-            // 原图已从相簿移除：停在原先记下的下一张，不再退回列表头部。
-            currentID = nextID
-            clampCurrentID()
-            return
-        }
-
-        if let message = summary.messages.first {
-            toastMessage = ToastMessage(text: message, kind: .warning)
-        }
+        vaultSwipe(item.id)
     }
 
     // MARK: 销毁
 
-    /// 点击坞口只触发一次“下滑入待销毁”，真正的入队发生在舞台回调里。
+    /// 点击坞口只触发一次“下滑入待销毁”，真正的决策发生在舞台回调里。
     private func requestDiscardCurrent() {
-        guard destroy.phase == .idle || destroy.phase == .finished else { return }
+        guard task.isActive, !isExecutingTaskEnd else { return }
         guard currentItem != nil else {
             toastMessage = ToastMessage(text: "当前没有可加入的照片", kind: .warning)
-            return
-        }
-        guard destroy.tickets.count < entitlements.batchLimit() else {
-            toastMessage = ToastMessage(text: "累积已满，先销毁或清空", kind: .warning)
             return
         }
         discardRequest += 1
     }
 
-    /// 舞台完成下滑动画后调用：加入待销毁累积，并把舞台推进到下一张。
+    /// 舞台完成下滑动画后调用：记录“废纸篓”决策并推进。
     private func discardCurrent(id: String) {
-        guard let item = library.items.first(where: { $0.id == id }) else { return }
-        guard destroy.phase == .idle || destroy.phase == .finished else { return }
+        guard task.isActive, !isExecutingTaskEnd else { return }
+        guard task.items.contains(where: { $0.id == id }) else { return }
 
-        // 入队后这张会从可见序列里消失，先算出落点。
         let nextID = idAfterRemoving(id)
-
-        let accepted = destroy.enqueue(
-            ids: [item.id],
-            kinds: [item.id: item.kind],
-            limit: entitlements.batchLimit()
-        )
-
-        guard accepted > 0 else {
-            toastMessage = ToastMessage(text: "累积已满，先销毁或清空", kind: .warning)
-            return
-        }
-
+        task.record(id: id, decision: .destroy)
         currentID = nextID
         isZoomed = false
         zoomScale = 1
+        handleTaskProgress()
     }
 
-    /// 累积到阈值时自动点亮指示灯并弹出确认；阈值见 DestroyPolicy。
-    private func handlePendingCountChange(_ count: Int) {
-        if count == 0 {
-            hasAutoPromptedBatch = false
+    /// UI 测试用：确保有任务可操作。
+    private func ensureUITestTask() {
+        guard !task.isActive else {
+            isWorkspacePresented = true
+            clampCurrentID()
             return
         }
-
-        guard count >= DestroyPolicy.autoConfirmThreshold else {
-            hasAutoPromptedBatch = false
-            return
-        }
-
-        guard !hasAutoPromptedBatch, !destroy.phase.isBusy else { return }
-        hasAutoPromptedBatch = true
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        isDestroyConfirmPresented = true
-    }
-
-    private func startDestroying(ids: [String]) {
-        guard !ids.isEmpty, destroy.phase == .idle else { return }
-        // 在删除提交前开始采样，蓄力与系统确认期间并行读取，不阻塞流程。
-        pendingDestroySampleTask = Task {
-            await StatisticsService.sampleBytes(localIDs: ids)
-        }
-        sound.play(.destroyStart)
-        destroy.start { localIDs in
-            #if DEBUG
-            if DebugOptions.isSimulatingDestroy {
-                try? await Task.sleep(for: .milliseconds(400))
-                return
-            }
-            #endif
-            try await library.delete(localIDs: localIDs)
-        }
-    }
-
-    private func handleDestroyOutcome(_ outcome: DestroyOutcome?) async {
-        guard let outcome else { return }
-
-        if outcome.wasCancelled {
-            pendingDestroySampleTask?.cancel()
-            pendingDestroySampleTask = nil
-            toastMessage = ToastMessage(
-                text: "已取消，未删除任何照片，队列已保留",
-                kind: .warning
-            )
-            return
-        }
-
-        let sample: ByteSample
-        if let task = pendingDestroySampleTask {
-            sample = await task.value
-        } else {
-            sample = ByteSample()
-        }
-        pendingDestroySampleTask = nil
-
-        statistics.recordDestroy(
-            count: outcome.succeededIDs.count,
-            sample: sample.scoped(to: outcome.succeededIDs),
-            machine: outcome.machine
+        let snoozedIDs = snooze.activeIDs
+        let rawItems = library.taskItems(
+            albumLocalID: nil,
+            limit: TaskPolicy.batchSize + snoozedIDs.count
         )
-        sound.play(.destroyFinish)
-
-        toastMessage = ToastMessage(
-            text: "已将 \(outcome.succeededIDs.count) 张移入系统『最近删除』，30 天内可找回",
-            kind: .success
+        let items = Array(
+            rawItems
+                .filter { !snoozedIDs.contains($0.id) }
+                .prefix(TaskPolicy.batchSize)
         )
-    }
-
-    /// UI 测试用：直接把前 count 张加入待销毁累积，不播放舞台动画。
-    private func enqueueForUITest(count: Int) {
-        let ids = library.items.prefix(count).map(\.id)
-        guard !ids.isEmpty else { return }
-        let kinds = Dictionary(uniqueKeysWithValues: library.items.map { ($0.id, $0.kind) })
-        destroy.enqueue(ids: ids, kinds: kinds, limit: entitlements.batchLimit())
+        guard !items.isEmpty else { return }
+        task.start(albumLocalID: nil, albumTitle: "全部照片", items: items)
+        isWorkspacePresented = true
+        currentID = task.remainingItems.first?.id
     }
 
     /// UI 测试钩子；正常启动不会触发。
     private func runUITestHooksIfNeeded() async {
-        let arguments = ProcessInfo.processInfo.arguments
         let environment = ProcessInfo.processInfo.environment
 
         #if DEBUG
@@ -970,12 +1089,12 @@ struct HomeView: View {
             let ids = library.items.prefix(2).map(\.id)
             if !ids.isEmpty {
                 let kinds = Dictionary(uniqueKeysWithValues: library.items.map { ($0.id, $0.kind) })
-                _ = await vault.importAssets(
+                let staged = await vault.stageAssets(
                     localIDs: ids,
                     kinds: kinds,
-                    entitlements: entitlements,
-                    simulateRemoval: true
+                    entitlements: entitlements
                 )
+                vault.commitStaged(staged.records)
             }
             try? vault.configure(a: 7, b: 23)
             try? await Task.sleep(for: .milliseconds(300))
@@ -1015,21 +1134,25 @@ struct HomeView: View {
         }
         if environment["UI_TEST_OPEN_ALBUMS"] == "1" {
             try? await Task.sleep(for: .milliseconds(400))
+            ensureUITestTask()
             isAlbumsDrawerPresented = true
             return
         }
         if environment["UI_TEST_STAGE_DISCARD"] == "1" {
             try? await Task.sleep(for: .milliseconds(1000))
+            ensureUITestTask()
             discardRequest += 1
             return
         }
         if environment["UI_TEST_STAGE_TAP"] == "1" {
             try? await Task.sleep(for: .milliseconds(1000))
+            ensureUITestTask()
             tapRequest += 1
             return
         }
         if environment["UI_TEST_STAGE_TAP_NIL"] == "1" {
             try? await Task.sleep(for: .milliseconds(1000))
+            ensureUITestTask()
             currentID = nil
             try? await Task.sleep(for: .milliseconds(300))
             tapRequest += 1
@@ -1037,6 +1160,7 @@ struct HomeView: View {
         }
         if let raw = environment["UI_TEST_STAGE_PENDING"], let count = Int(raw) {
             try? await Task.sleep(for: .milliseconds(700))
+            ensureUITestTask()
             for _ in 0..<count {
                 guard let id = currentItem?.id else { break }
                 discardCurrent(id: id)
@@ -1044,25 +1168,10 @@ struct HomeView: View {
             }
             return
         }
-        if environment["UI_TEST_ENQUEUE"] == "1" {
-            try? await Task.sleep(for: .milliseconds(600))
-            enqueueForUITest(count: 3)
-            startDestroying(ids: destroy.tickets.map(\.id))
-            return
-        }
-        if environment["UI_TEST_ENQUEUE"] == "2" {
-            try? await Task.sleep(for: .milliseconds(600))
-            enqueueForUITest(count: 3)
-            startDestroying(ids: destroy.tickets.map(\.id))
-            try? await Task.sleep(for: .milliseconds(900))
-            destroy.cancel()
-            return
-        }
         if environment["UI_TEST_MACHINE"] == "shredder" {
             try? await Task.sleep(for: .milliseconds(600))
+            ensureUITestTask()
             destroy.switchMachine(.shredder)
-            enqueueForUITest(count: 2)
-            startDestroying(ids: destroy.tickets.map(\.id))
             return
         }
 
@@ -1131,19 +1240,5 @@ struct HomeView: View {
             return
         }
         #endif
-
-        guard arguments.contains("-ui-test-open-settings")
-                || environment["UI_TEST_OPEN_SETTINGS"] == "1" else { return }
-        try? await Task.sleep(for: .milliseconds(500))
-        isSettingsPresented = true
     }
-}
-
-#Preview {
-    HomeView()
-        .environment(EntitlementStore())
-        .environment(VaultStore())
-        .environment(AppSettings())
-        .environment(StatisticsService())
-        .environment(SoundService())
 }

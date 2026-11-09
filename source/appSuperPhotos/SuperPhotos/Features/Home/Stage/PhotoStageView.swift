@@ -31,7 +31,7 @@ enum StageStackPolicy {
     static let sideFlickPrediction: CGFloat = 120
 }
 
-/// 舞台：拍立得叠放 + 轻点换牌 + 下滑入待销毁 + 左滑入保险箱 + 右滑入收藏夹 + 捏合缩放。
+/// 舞台：拍立得叠放 + 轻点全屏 + 上滑延后 + 下滑入待销毁 + 左滑入保险箱 + 右滑入收藏夹 + 捏合缩放。
 struct PhotoStageView: View {
     /// 当前可见（未进入待销毁）的照片序列。
     let items: [PhotoItem]
@@ -50,10 +50,12 @@ struct PhotoStageView: View {
     let sideDropOffset: CGFloat
 
     var onAdvance: (String) -> Void
+    var onOpenFullscreen: (String) -> Void
     var onVaultStore: (String) -> Void
     var onFavoriteStore: (String) -> Void
     var onFavoriteRejected: () -> Void
     var onDiscard: (String) -> Void
+    var onSnooze: (String, Int) -> Void
     var onZoomChanged: (Bool, CGFloat) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -64,6 +66,8 @@ struct PhotoStageView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var dragAxis: DragAxis?
     @State private var isShifting = false
+    /// 上滑跟手时的目标延后天数；nil 表示当前不是上滑。
+    @State private var snoozePreviewDays: Int?
 
     @State private var outgoing: OutgoingCard?
     @State private var outgoingOffset: CGSize = .zero
@@ -157,14 +161,32 @@ struct PhotoStageView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
             .gesture(dragGesture(container: proxy.size, cardSize: cardSize))
-            // 轻点由容器统一接管：避免首帧/层叠状态下单张卡片的命中被判给错误图层。
+            // 轻点由容器统一接管：进入全屏查看，不再推进。
             .simultaneousGesture(
                 TapGesture().onEnded {
                     guard isInteractionEnabled, !isShifting, !isZoomed else { return }
-                    beginAdvance(container: proxy.size)
+                    openFullscreen()
                 }
             )
             .simultaneousGesture(magnifyGesture)
+            // 上滑跟手时在照片上方浮出目标天数。
+            .overlay(alignment: .center) {
+                if let days = snoozePreviewDays, !isShifting {
+                    snoozeBadge(days: days)
+                        .offset(y: -cardSize.height / 2 - 26)
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                        .zIndex(30)
+                }
+            }
+            // 轻点改为全屏后，补一个明确的“下一张”入口；两者都做成易替换的小控件。
+            .overlay(alignment: .bottomTrailing) {
+                if isInteractionEnabled, !isShifting, currentItem != nil {
+                    nextButton(container: proxy.size)
+                        .padding(.trailing, 2)
+                        .padding(.bottom, 6)
+                }
+            }
             .onChange(of: zoomScale) { _, scale in
                 onZoomChanged(scale > 1.01, scale)
                 if scale <= 1.01 {
@@ -174,6 +196,7 @@ struct PhotoStageView: View {
             }
             .onChange(of: currentIndex) { _, _ in
                 frontImage = nil
+                snoozePreviewDays = nil
                 resetZoom(animated: false)
             }
             .onChange(of: discardRequest) { _, _ in
@@ -182,7 +205,7 @@ struct PhotoStageView: View {
             }
             .onChange(of: tapRequest) { _, _ in
                 guard isInteractionEnabled, !isShifting else { return }
-                beginAdvance(container: proxy.size)
+                openFullscreen()
             }
             .task(id: prefetchKey) {
                 thumbnails.startPrefetching(
@@ -247,8 +270,14 @@ struct PhotoStageView: View {
                 .accessibilityLabel(
                     "第 \(currentIndex + 1) 张，共 \(items.count) 张，\(entry.item.shortDateText)，\(entry.item.kind.displayName)"
                 )
-                .accessibilityHint("轻点看下一张，下滑加入待销毁，左滑存入保险箱，右滑存入收藏夹")
+                .accessibilityHint("轻点全屏查看，上滑延后，下滑加入待销毁，左滑存入保险箱，右滑存入收藏夹")
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: "全屏查看") {
+                    openFullscreen()
+                }
+                .accessibilityAction(named: "下一张照片") {
+                    beginAdvance(container: stageContainerSize(for: cardSize))
+                }
                 .accessibilityAction(named: "加入待销毁") {
                     guard canDiscard else { return }
                     beginDiscard(container: stageContainerSize(for: cardSize))
@@ -284,7 +313,7 @@ struct PhotoStageView: View {
                 .foregroundStyle(Theme.Text.primary)
                 .multilineTextAlignment(.center)
 
-            Text("点底部“销毁”确认，或清空待销毁累积")
+            Text("正在统一加密与删除，请稍候")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.secondary)
                 .multilineTextAlignment(.center)
@@ -319,9 +348,27 @@ struct PhotoStageView: View {
                 switch dragAxis {
                 case .vertical:
                     let dy = value.translation.height
-                    dragOffset = CGSize(width: 0, height: dy > 0 ? stretched(dy) : dy * 0.15)
+                    if dy >= 0 {
+                        // 下滑 = 入待销毁；正向拉伸有阻尼上限。
+                        snoozePreviewDays = nil
+                        dragOffset = CGSize(width: 0, height: stretched(dy))
+                    } else {
+                        // 上滑 = 延后；跟手实时算出目标天数并浮出提示。
+                        let lift = min(-dy, SnoozePolicy.stretchLimit)
+                        let days = SnoozePolicy.days(
+                            translation: -dy,
+                            predicted: -value.predictedEndTranslation.height
+                        )
+                        if snoozePreviewDays != days {
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                snoozePreviewDays = days
+                            }
+                        }
+                        dragOffset = CGSize(width: 0, height: -lift * 0.9)
+                    }
                 case .horizontal:
                     // 左右滑用于投入两侧实体，跟手位移不做过度阻尼。
+                    snoozePreviewDays = nil
                     dragOffset = CGSize(width: value.translation.width * 0.78, height: 0)
                 case .none:
                     break
@@ -343,9 +390,13 @@ struct PhotoStageView: View {
 
                 switch axis {
                 case .vertical:
-                    if shouldDiscard(value) {
+                    // 方向已在起点裁决：向上只可能是延后，向下只可能是待销毁。
+                    if shouldSnooze(value) {
+                        beginSnooze(days: snoozePreviewDays ?? 1, container: container)
+                    } else if shouldDiscard(value) {
                         beginDiscard(container: container)
                     } else {
+                        snoozePreviewDays = nil
                         reboundDrag()
                     }
                 case .horizontal:
@@ -400,9 +451,50 @@ struct PhotoStageView: View {
     }
 
     private func reboundDrag() {
+        snoozePreviewDays = nil
         withAnimation(Theme.Motion.animation(.spring, reduceMotion: reduceMotion)) {
             dragOffset = .zero
         }
+    }
+
+    /// 上滑提交：距离达到阈值，或“距离 + 甩动预测”达标。
+    private func shouldSnooze(_ value: DragGesture.Value) -> Bool {
+        let up = -value.translation.height
+        let predictedUp = -value.predictedEndTranslation.height
+        guard up > 0 else { return false }
+        if up >= SnoozePolicy.commitDistance { return true }
+        return up > 24 && predictedUp >= SnoozePolicy.commitDistance * 1.4
+    }
+
+    private func openFullscreen() {
+        guard isInteractionEnabled, !isShifting, !isZoomed, let item = currentItem else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        onOpenFullscreen(item.id)
+    }
+
+    private func snoozeBadge(days: Int) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 11, weight: .semibold))
+            Text("延后 \(days) 天")
+                .font(Theme.Typography.caption.weight(.semibold).monospacedDigit())
+        }
+        .foregroundStyle(Theme.Text.primary)
+        .padding(.horizontal, Theme.Spacing.md)
+        .frame(minHeight: 28)
+        .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.chip)
+    }
+
+    /// 临时“下一张”入口：位置与样式都可直接替换，不影响手势分流。
+    private func nextButton(container: CGSize) -> some View {
+        Button {
+            beginAdvance(container: container)
+        } label: {
+            Image(systemName: "arrow.right")
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .buttonStyle(NeuIconButtonStyle(diameter: 34, tint: Theme.Text.secondary))
+        .accessibilityLabel("下一张照片")
     }
 
     private func clampedPan(_ value: CGSize, scale: CGFloat, cardSize: CGSize) -> CGSize {
@@ -435,12 +527,15 @@ struct PhotoStageView: View {
         guard isInteractionEnabled, !isShifting else { return }
         guard let item = currentItem else { return }
         guard currentIndex + 1 < items.count else {
+            // 最后一张也要能被“下一张”决定为保留，否则任务无法收尾。
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(.spring(response: 0.25, dampingFraction: 0.55)) {
                 dragOffset = CGSize(width: 8, height: 0)
             }
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(60))
+                try? await Task.sleep(for: .milliseconds(80))
                 reboundDrag()
+                onAdvance(item.id)
             }
             return
         }
@@ -449,6 +544,7 @@ struct PhotoStageView: View {
 
         let start = dragOffset
         dragOffset = .zero
+        snoozePreviewDays = nil
         isShifting = true
         outgoing = OutgoingCard(item: item, image: frontImage)
         outgoingOffset = start
@@ -478,6 +574,44 @@ struct PhotoStageView: View {
         }
     }
 
+    /// 上滑：照片向上飞出舞台，交给外部落库延后。
+    private func beginSnooze(days: Int, container: CGSize) {
+        guard isInteractionEnabled, !isShifting else { return }
+        guard let item = currentItem else { return }
+
+        let clamped = min(SnoozePolicy.maxDays, max(SnoozePolicy.minDays, days))
+
+        resetZoom(animated: false)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        let start = dragOffset
+        dragOffset = .zero
+        snoozePreviewDays = nil
+        isShifting = true
+        outgoing = OutgoingCard(item: item, image: frontImage)
+        outgoingOffset = start
+        outgoingScale = 1
+        outgoingOpacity = 1
+
+        withAnimation(.easeIn(duration: reduceMotion ? 0.18 : 0.3)) {
+            outgoingOffset = CGSize(width: 0, height: -(container.height + 260))
+            outgoingScale = 0.86
+            outgoingOpacity = 0
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 180 : 300))
+            onSnooze(item.id, clamped)
+            await Task.yield()
+
+            isShifting = false
+            outgoing = nil
+            outgoingOffset = .zero
+            outgoingScale = 1
+            outgoingOpacity = 1
+        }
+    }
+
     /// 下滑：当前照片飞入底部处理口，同时迸发粒子，交给外部加入待销毁累积。
     private func beginDiscard(container: CGSize) {
         guard isInteractionEnabled, !isShifting, canDiscard else { return }
@@ -488,6 +622,7 @@ struct PhotoStageView: View {
 
         let start = dragOffset
         dragOffset = .zero
+        snoozePreviewDays = nil
         isShifting = true
         outgoing = OutgoingCard(item: item, image: frontImage)
         outgoingOffset = start
