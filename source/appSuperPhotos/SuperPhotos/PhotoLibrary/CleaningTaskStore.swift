@@ -70,7 +70,6 @@ final class CleaningTaskStore {
 
     var keepCount: Int { snapshot?.count(of: .keep) ?? 0 }
     var snoozeCount: Int { snapshot?.count(of: .snooze) ?? 0 }
-    var vaultCount: Int { snapshot?.count(of: .vault) ?? 0 }
     var destroyCount: Int { snapshot?.count(of: .destroy) ?? 0 }
 
     var vaultIDs: [String] { ids(with: .vault) }

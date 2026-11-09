@@ -326,6 +326,11 @@ struct PhotoFullscreenView: View {
                 Text(currentItem?.kind.displayName ?? "")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.65))
+                if let item = currentItem {
+                    Text("\(Int(item.pixelSize.width))×\(Int(item.pixelSize.height))")
+                        .font(.system(size: 9, design: .monospaced).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.5))
+                }
             }
             .frame(minWidth: 96)
 

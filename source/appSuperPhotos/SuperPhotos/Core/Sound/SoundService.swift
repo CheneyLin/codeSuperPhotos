@@ -12,12 +12,15 @@ final class SoundService {
         case destroyFinish
         case vaultImport
         case vaultRestore
+        /// 照片落进纸篓的揉纸声。
+        case paperCrunch
 
         var resourceName: String {
             switch self {
             case .destroyStart: "destroy_start"
             case .destroyFinish: "destroy_finish"
             case .vaultImport, .vaultRestore: "vault_import"
+            case .paperCrunch: "paper_crunch"
             }
         }
     }

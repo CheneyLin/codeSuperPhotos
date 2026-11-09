@@ -7,21 +7,25 @@ enum StageStackPolicy {
     static let visibleDepth = 4
     /// 各层旋转角度（正数顺时针）：0° / 左 15° / 右 10° / 左 5°，形成随手一叠的错落感。
     static let depthAngles: [Double] = [0, -15, 10, -5]
-    /// 各层偏移：越靠后越向下、向外散开，避免机械对齐。
-    static let depthOffsets: [CGSize] = [
-        .zero,
-        CGSize(width: -7, height: 11),
-        CGSize(width: 9, height: 17),
-        CGSize(width: -13, height: 23)
-    ]
+    /// 各层横向偏移：越靠后越向外散开，避免机械对齐；纵向由底边露出量统一计算。
+    static let depthShiftX: [CGFloat] = [0, -7, 9, -13]
     /// 各层缩放：后层略小，强化“一叠相纸”的层次。
     static let depthScales: [CGFloat] = [1, 0.985, 0.97, 0.955]
     /// 相纸边距：左右 / 上 / 下（底部留出拍立得的“下巴”）。
-    static let paperSide: CGFloat = 9
-    static let paperTop: CGFloat = 9
-    static let paperBottom: CGFloat = 24
-    /// 卡片宽高比（宽 / 高）；照片按自身比例缩进相纸，多出的部分即边距。
-    static let cardAspect: CGFloat = 0.75
+    static let paperSide: CGFloat = 10
+    static let paperTop: CGFloat = 10
+    static let paperBottom: CGFloat = 26
+    /// 照片内容归一后的目标比例（width / height）：横图 4:3，竖图 3:4。
+    static let landscapeContentAspect: CGFloat = 4.0 / 3.0
+    static let portraitContentAspect: CGFloat = 3.0 / 4.0
+    /// 每层向下露出的底边高度（含前排 0）。
+    /// 需要覆盖旋转带来的单侧抬升：172pt 宽的卡片旋转 15° 时底角约抬升 22pt，
+    /// 因此往后每一层都比前排底边多露出一点，避免被前排完全盖住。
+    static let depthReveal: [CGFloat] = [0, 22, 26, 30]
+    /// 卡片统一宽度占舞台宽度的比例，为 ±15° 旋转后的横向外扩留余量。
+    static let stackWidthRatio: CGFloat = 0.78
+    /// 舞台高度的可用比例（留出进度条与底部信息）。
+    static let stackHeightRatio: CGFloat = 0.9
     /// 下滑提交阈值；不足则弹簧回弹。
     static let discardCommitDistance: CGFloat = 96
     /// 跟手阶段的最大拉伸；超出后按 1/4 阻尼继续。
@@ -29,6 +33,13 @@ enum StageStackPolicy {
     /// 左右滑提交距离与甩动预测。
     static let sideCommitDistance: CGFloat = 64
     static let sideFlickPrediction: CGFloat = 120
+
+    /// 素材按横竖归一到 4:3 / 3:4，正方形与极端长图也落到这两档。
+    static func contentAspect(for item: PhotoItem) -> CGFloat {
+        item.pixelSize.width >= item.pixelSize.height
+            ? landscapeContentAspect
+            : portraitContentAspect
+    }
 }
 
 /// 舞台：拍立得叠放 + 轻点全屏 + 上滑延后 + 下滑入待销毁 + 左滑入保险箱 + 右滑入收藏夹 + 捏合缩放。
@@ -73,7 +84,8 @@ struct PhotoStageView: View {
     @State private var outgoingOffset: CGSize = .zero
     @State private var outgoingScale: CGFloat = 1
     @State private var outgoingOpacity: Double = 1
-    @State private var frontImage: UIImage?
+    /// 前排放上报的缩略图；必须带 asset ID，避免换牌时把上一张的图交给新卡。
+    @State private var frontThumbnail: FrontThumbnail?
     @State private var burstToken = 0
 
     @State private var zoomScale: CGFloat = 1
@@ -96,6 +108,12 @@ struct PhotoStageView: View {
         let image: UIImage?
     }
 
+    /// 缩略图与它所属的 asset 绑定，读取时校验 ID 才使用。
+    private struct FrontThumbnail {
+        let id: String
+        let image: UIImage
+    }
+
     private struct StackEntry: Identifiable {
         let id: String
         let item: PhotoItem
@@ -108,6 +126,13 @@ struct PhotoStageView: View {
     }
 
     private var isZoomed: Bool { zoomScale > 1.01 }
+
+    /// 只有与目标 asset 一致的缩略图才可作为飞出卡片的占位；
+    /// ID 不匹配时返回 nil，让卡片按自己的 ID 重新加载，绝不把上一张的图带过去。
+    private func cachedThumbnail(for item: PhotoItem) -> UIImage? {
+        guard let frontThumbnail, frontThumbnail.id == item.id else { return nil }
+        return frontThumbnail.image
+    }
 
     private var stackEntries: [StackEntry] {
         let start = max(0, currentIndex)
@@ -126,26 +151,35 @@ struct PhotoStageView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let cardSize = fitCardSize(in: proxy.size)
+            let cardWidth = stackCardWidth(in: proxy.size)
+            let frontCardSize = currentItem.map { cardSize(for: $0, width: cardWidth) }
+                ?? fallbackCardSize(width: cardWidth)
 
             ZStack {
                 if currentItem == nil {
                     emptyStage
                 } else {
-                    stack(cardSize: cardSize)
+                    stack(cardWidth: cardWidth, frontHeight: frontCardSize.height)
                 }
 
                 if let outgoing {
                     PolaroidCardView(
                         item: outgoing.item,
                         thumbnails: thumbnails,
-                        size: cardSize,
+                        size: cardSize(for: outgoing.item, width: cardWidth),
                         cachedImage: outgoing.image
                     )
+                    // 身份跟随 asset：连续飞出多张时不复用上一张的视图状态。
+                    .id(outgoing.item.id)
                     .scaleEffect(outgoingScale)
-                    .offset(outgoingOffset)
+                    .offset(
+                        x: outgoingOffset.width,
+                        y: outgoingOffset.height
+                    )
                     .opacity(outgoingOpacity)
-                    .zIndex(12)
+                    // 必须在整叠之上：换牌时它要先盖住前排，再向上飞走，
+                    // 否则它会从后排卡下方穿过去，露出前后两张的缝隙。
+                    .zIndex(200)
                     .allowsHitTesting(false)
                 }
 
@@ -160,7 +194,7 @@ struct PhotoStageView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
-            .gesture(dragGesture(container: proxy.size, cardSize: cardSize))
+            .gesture(dragGesture(container: proxy.size, cardSize: frontCardSize))
             // 轻点由容器统一接管：进入全屏查看，不再推进。
             .simultaneousGesture(
                 TapGesture().onEnded {
@@ -173,18 +207,10 @@ struct PhotoStageView: View {
             .overlay(alignment: .center) {
                 if let days = snoozePreviewDays, !isShifting {
                     snoozeBadge(days: days)
-                        .offset(y: -cardSize.height / 2 - 26)
+                        .offset(y: -frontCardSize.height / 2 - 26)
                         .allowsHitTesting(false)
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                         .zIndex(30)
-                }
-            }
-            // 轻点改为全屏后，补一个明确的“下一张”入口；两者都做成易替换的小控件。
-            .overlay(alignment: .bottomTrailing) {
-                if isInteractionEnabled, !isShifting, currentItem != nil {
-                    nextButton(container: proxy.size)
-                        .padding(.trailing, 2)
-                        .padding(.bottom, 6)
                 }
             }
             .onChange(of: zoomScale) { _, scale in
@@ -195,7 +221,6 @@ struct PhotoStageView: View {
                 }
             }
             .onChange(of: currentIndex) { _, _ in
-                frontImage = nil
                 snoozePreviewDays = nil
                 resetZoom(animated: false)
             }
@@ -210,10 +235,7 @@ struct PhotoStageView: View {
             .task(id: prefetchKey) {
                 thumbnails.startPrefetching(
                     ids: stackEntries.map(\.id),
-                    targetSize: CGSize(
-                        width: cardSize.width * UIScreen.main.scale,
-                        height: cardSize.height * UIScreen.main.scale
-                    )
+                    targetSize: prefetchTargetSize(cardWidth: cardWidth)
                 )
             }
             .onDisappear {
@@ -224,46 +246,97 @@ struct PhotoStageView: View {
 
     // MARK: - 尺寸
 
-    /// 相纸卡片等比适配可用区域；留出旋转与散开偏移的空间。
-    private func fitCardSize(in container: CGSize) -> CGSize {
-        let aspect = StageStackPolicy.cardAspect
-        // 0.86 是给 ±15° 旋转留出的余量：后层只会轻微压到两栏边缘，不会被裁切。
-        let maxWidth = max(72, container.width * 0.86)
-        let maxHeight = max(96, container.height * 0.88)
-        let width = min(maxWidth, maxHeight * aspect)
-        return CGSize(width: width, height: width / aspect)
+    private var paperMarginY: CGFloat {
+        StageStackPolicy.paperTop + StageStackPolicy.paperBottom
+    }
+
+    /// 堆叠卡片统一宽度：按前排素材的横竖比例适配可用区域。
+    private func stackCardWidth(in container: CGSize) -> CGFloat {
+        let aspect = currentItem.map(StageStackPolicy.contentAspect(for:)) ?? StageStackPolicy.landscapeContentAspect
+        let maxWidth = max(96, container.width * StageStackPolicy.stackWidthRatio)
+        // 预留旋转与底边露出的余量后再换算成内容宽度。
+        let maxContentHeight = max(120, container.height * StageStackPolicy.stackHeightRatio - paperMarginY)
+        return min(maxWidth, maxContentHeight * aspect)
+    }
+
+    /// 同一叠相纸宽度一致，高度随素材横竖各自归一，横图矮、竖图高。
+    private func cardSize(for item: PhotoItem, width: CGFloat) -> CGSize {
+        let contentHeight = max(1, width / StageStackPolicy.contentAspect(for: item))
+        return CGSize(width: width, height: contentHeight + paperMarginY)
+    }
+
+    /// 空舞台（没有素材比例可参考）时的兜底尺寸。
+    private func fallbackCardSize(width: CGFloat) -> CGSize {
+        CGSize(
+            width: width,
+            height: max(1, width / StageStackPolicy.landscapeContentAspect) + paperMarginY
+        )
+    }
+
+    /// 预热按这一叠里最大的内容区域请求，横竖混合时也不会糊。
+    private func prefetchTargetSize(cardWidth: CGFloat) -> CGSize {
+        let contentWidth = max(1, cardWidth - StageStackPolicy.paperSide * 2)
+        let maxCardHeight = stackEntries
+            .map { cardSize(for: $0.item, width: cardWidth).height }
+            .max() ?? cardWidth
+        let contentHeight = max(1, maxCardHeight - paperMarginY)
+        return CGSize(
+            width: contentWidth * UIScreen.main.scale,
+            height: contentHeight * UIScreen.main.scale
+        )
     }
 
     // MARK: - 堆叠
 
-    private func stack(cardSize: CGSize) -> some View {
-        ZStack {
+    private func stack(cardWidth: CGFloat, frontHeight: CGFloat) -> some View {
+        // 升位瞬间底板要跟着换成“即将成为前排”的那一张的尺寸，
+        // 否则横竖图混排时会露出旧尺寸多出来的相纸边。
+        let backingSize = backingCardSize(cardWidth: cardWidth, frontHeight: frontHeight)
+
+        return ZStack {
+            // 不透明相纸底板：恒垫在前排卡正下方，跟随拖拽的位移与旋转。
+            // 换牌时前排卡有一帧未就绪/透明，看到的也是相纸色，不会透出后面第三张；
+            // 正常状态下它被前排卡完全盖住，不参与命中与无障碍。
+            RoundedRectangle(cornerRadius: Theme.Polaroid.corner, style: .continuous)
+                .fill(Theme.Polaroid.paper)
+                .frame(width: backingSize.width, height: backingSize.height)
+                .rotationEffect(.degrees(Double(dragOffset.width) * 0.05))
+                .offset(x: dragOffset.width, y: dragOffset.height)
+                .shadow(color: Theme.Polaroid.shadow, radius: 10, x: 0, y: 6)
+                .zIndex(99.5)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
             ForEach(stackEntries) { entry in
                 let effectiveDepth = max(0, entry.depth - (isShifting ? 1 : 0))
                 let isFront = entry.depth == 0
-                let pose = pose(for: effectiveDepth)
+                let entrySize = cardSize(for: entry.item, width: cardWidth)
+                let pose = pose(for: effectiveDepth, entryHeight: entrySize.height, frontHeight: frontHeight)
 
                 PolaroidCardView(
                     item: entry.item,
                     thumbnails: thumbnails,
-                    size: cardSize,
+                    size: entrySize,
                     zoomScale: isFront ? zoomScale : 1,
                     panOffset: isFront ? panOffset : .zero,
+                    reportsImage: isFront,
                     onImageLoaded: isFront ? { image in
-                        if entry.item.id == currentItem?.id {
-                            frontImage = image
-                        }
+                        frontThumbnail = FrontThumbnail(id: entry.item.id, image: image)
                     } : nil
                 )
                 .scaleEffect(pose.scale)
                 .rotationEffect(.degrees(pose.angle))
                 .rotationEffect(.degrees(isFront ? Double(dragOffset.width) * 0.05 : 0))
                 .offset(
-                    x: pose.offset.width + (isFront ? dragOffset.width : 0),
-                    y: pose.offset.height + (isFront ? dragOffset.height : 0)
+                    x: pose.x + (isFront ? dragOffset.width : 0),
+                    y: pose.y + (isFront ? dragOffset.height : 0)
                 )
-                .opacity(isFront && isShifting ? 0 : 1)
-                .zIndex(Double(100 - entry.depth))
+                // 只隐藏“正在飞出的那一张”（按 asset 身份判断），而不是“当前前排”：
+                // 左右滑在飞行一开始就由外部移除了这张，新前排必须立刻可见；
+                // 若按位置隐藏，新前排会在整个飞行期间是透明的，露出后面的卡。
+                .opacity(isShifting && entry.item.id == outgoing?.item.id ? 0 : 1)
+                // 用升位后的深度排序：升上来的卡必须站到前排层，而不是被旧前排压住。
+                .zIndex(Double(100 - effectiveDepth))
                 .allowsHitTesting(isFront && isInteractionEnabled && !isShifting)
                 .accessibilityElement(children: .ignore)
                 .accessibilityHidden(!isFront)
@@ -276,28 +349,55 @@ struct PhotoStageView: View {
                     openFullscreen()
                 }
                 .accessibilityAction(named: "下一张照片") {
-                    beginAdvance(container: stageContainerSize(for: cardSize))
+                    beginAdvance(container: stageContainerSize(for: entrySize))
                 }
                 .accessibilityAction(named: "加入待销毁") {
                     guard canDiscard else { return }
-                    beginDiscard(container: stageContainerSize(for: cardSize))
+                    beginDiscard(container: stageContainerSize(for: entrySize))
                 }
             }
         }
         .animation(Theme.Motion.animation(.standard, reduceMotion: reduceMotion), value: currentIndex)
-        .animation(Theme.Motion.animation(.standard, reduceMotion: reduceMotion), value: isShifting)
+        // 注意：不要给 isShifting 加动画。整叠升位若与旧前排的隐藏一起插值，
+        // 中途会出现“前排半透明、后排还在路上”的帧，那正是穿透的来源。
+        // 升位在同一帧内完成，动画只发生在顶层飞出卡上。
     }
 
-    /// 无障碍动作拿不到容器的真实尺寸，用卡片尺寸的 3 倍高度作为近似飞行距离。
+    /// 底板尺寸：升位过程中取即将成为前排的那一张，其余时候取当前前排。
+    /// 用 stackEntries 而不是 `items[currentIndex + 1]`：升位与本地的
+    /// `isShifting = false` 在同一事务里提交，避免中间帧取到再下一张的尺寸。
+    /// 换牌（轻点/上滑/下滑）时旧前排仍在列表里，真正要顶上来的是 depth 1；
+    /// 左右滑在飞行开始时就已由外部移除，新前排已经是 depth 0。
+    private var incomingFrontDepth: Int {
+        guard isShifting, let outgoing,
+              stackEntries.contains(where: { $0.item.id == outgoing.item.id })
+        else { return 0 }
+        return 1
+    }
+
+    private func backingCardSize(cardWidth: CGFloat, frontHeight: CGFloat) -> CGSize {
+        let target = stackEntries.first(where: { $0.depth == incomingFrontDepth })?.item
+            ?? stackEntries.first?.item
+        if let target {
+            return cardSize(for: target, width: cardWidth)
+        }
+        return CGSize(width: cardWidth, height: frontHeight)
+    }
+
+    /// 无障碍动作拿不到容器的真实尺寸，用卡片尺寸作为近似飞行距离。
     private func stageContainerSize(for cardSize: CGSize) -> CGSize {
         CGSize(width: cardSize.width + 24, height: cardSize.height * 1.3)
     }
 
-    private func pose(for depth: Int) -> (angle: Double, offset: CGSize, scale: CGFloat) {
+    /// 以底边为基准对齐：每深一层都在前排下缘再多露出固定高度，
+    /// 这样横图、竖图混叠时后排下缘都不会被前排完全盖住。
+    private func pose(for depth: Int, entryHeight: CGFloat, frontHeight: CGFloat) -> (angle: Double, x: CGFloat, y: CGFloat, scale: CGFloat) {
         let index = min(depth, StageStackPolicy.visibleDepth - 1)
+        let y = (frontHeight - entryHeight) / 2 + StageStackPolicy.depthReveal[index]
         return (
             StageStackPolicy.depthAngles[index],
-            StageStackPolicy.depthOffsets[index],
+            StageStackPolicy.depthShiftX[index],
+            y,
             StageStackPolicy.depthScales[index]
         )
     }
@@ -485,18 +585,6 @@ struct PhotoStageView: View {
         .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.chip)
     }
 
-    /// 临时“下一张”入口：位置与样式都可直接替换，不影响手势分流。
-    private func nextButton(container: CGSize) -> some View {
-        Button {
-            beginAdvance(container: container)
-        } label: {
-            Image(systemName: "arrow.right")
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .buttonStyle(NeuIconButtonStyle(diameter: 34, tint: Theme.Text.secondary))
-        .accessibilityLabel("下一张照片")
-    }
-
     private func clampedPan(_ value: CGSize, scale: CGFloat, cardSize: CGSize) -> CGSize {
         let maxX = max(0, cardSize.width * (scale - 1) / 2) * 0.85
         let maxY = max(0, cardSize.height * (scale - 1) / 2) * 0.85
@@ -546,7 +634,7 @@ struct PhotoStageView: View {
         dragOffset = .zero
         snoozePreviewDays = nil
         isShifting = true
-        outgoing = OutgoingCard(item: item, image: frontImage)
+        outgoing = OutgoingCard(item: item, image: cachedThumbnail(for: item))
         outgoingOffset = start
         outgoingScale = 1
         outgoingOpacity = 1
@@ -558,14 +646,15 @@ struct PhotoStageView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 60 : 170))
             withAnimation(.easeIn(duration: reduceMotion ? 0.2 : 0.3)) {
+                // 只在位移上做过渡，全程保持 100% 不透明：
+                // 淡出会让下一层的卡（以及更后面那张）在重叠区透出来。
                 outgoingOffset = CGSize(width: 0, height: -(container.height + 320))
-                outgoingOpacity = 0
             }
 
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 190 : 290))
+            // 升位与“结束换牌”必须在同一事务提交：中间不能有一帧
+            // “已是新下标 + 仍在升位”的状态，那会让再下一张也被抬到前排层。
             onAdvance(item.id)
-            await Task.yield()
-
             isShifting = false
             outgoing = nil
             outgoingOffset = .zero
@@ -588,7 +677,7 @@ struct PhotoStageView: View {
         dragOffset = .zero
         snoozePreviewDays = nil
         isShifting = true
-        outgoing = OutgoingCard(item: item, image: frontImage)
+        outgoing = OutgoingCard(item: item, image: cachedThumbnail(for: item))
         outgoingOffset = start
         outgoingScale = 1
         outgoingOpacity = 1
@@ -602,8 +691,7 @@ struct PhotoStageView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 180 : 300))
             onSnooze(item.id, clamped)
-            await Task.yield()
-
+            // 与换牌同理：外部移除素材与本地结束升位同事务，不留双前排帧。
             isShifting = false
             outgoing = nil
             outgoingOffset = .zero
@@ -624,7 +712,7 @@ struct PhotoStageView: View {
         dragOffset = .zero
         snoozePreviewDays = nil
         isShifting = true
-        outgoing = OutgoingCard(item: item, image: frontImage)
+        outgoing = OutgoingCard(item: item, image: cachedThumbnail(for: item))
         outgoingOffset = start
         outgoingScale = 1
         outgoingOpacity = 1
@@ -639,8 +727,7 @@ struct PhotoStageView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 200 : 340))
             onDiscard(item.id)
-            await Task.yield()
-
+            // 与换牌同理：外部移除素材与本地结束升位同事务，不留双前排帧。
             isShifting = false
             outgoing = nil
             outgoingOffset = .zero
@@ -666,7 +753,7 @@ struct PhotoStageView: View {
         let start = dragOffset
         dragOffset = .zero
         isShifting = true
-        outgoing = OutgoingCard(item: item, image: frontImage)
+        outgoing = OutgoingCard(item: item, image: cachedThumbnail(for: item))
         outgoingOffset = start
         outgoingScale = 1
         outgoingOpacity = 1
@@ -680,13 +767,14 @@ struct PhotoStageView: View {
         }
 
         let horizontalTarget = container.width / 2 + sideDropOffset
+        // 与换牌一致：飞出卡全程 100% 不透明，只做位移与缩放。
+        // 任何淡出都会在它离开前排位置的过程中露出下面那张，正是左右滑独有闪烁的来源。
         withAnimation(.easeIn(duration: reduceMotion ? 0.18 : 0.3)) {
             outgoingOffset = CGSize(
                 width: side == .vault ? -horizontalTarget : horizontalTarget,
                 height: start.height + 36
             )
             outgoingScale = 0.7
-            outgoingOpacity = 0
         }
 
         Task { @MainActor in
@@ -702,7 +790,7 @@ struct PhotoStageView: View {
 
 // MARK: - 拍立得卡片
 
-/// 相纸卡片：主题色边距 + 按原比例缩进的照片，底部留出拍立得的“下巴”。
+/// 相纸卡片：按素材横竖归一到 4:3 / 3:4 裁切填充，圆润白边 + 底部“下巴”。
 private struct PolaroidCardView: View {
     let item: PhotoItem
     let thumbnails: ThumbnailProvider
@@ -710,12 +798,23 @@ private struct PolaroidCardView: View {
     var zoomScale: CGFloat = 1
     var panOffset: CGSize = .zero
     var cachedImage: UIImage? = nil
+    /// 本卡是否处于舞台前排；变为前排时补报一次已有缩略图，避免父层继续使用上一张的图。
+    var reportsImage: Bool = false
     var onImageLoaded: ((UIImage) -> Void)? = nil
 
-    @State private var image: UIImage?
+    @State private var loaded: LoadedThumbnail?
     @State private var failed = false
 
-    private var displayImage: UIImage? { image ?? cachedImage }
+    /// 加载完成的缩略图与 asset ID 一起保存；ID 不匹配时不显示。
+    private struct LoadedThumbnail {
+        let id: String
+        let image: UIImage
+    }
+
+    private var displayImage: UIImage? {
+        if let loaded, loaded.id == item.id { return loaded.image }
+        return cachedImage
+    }
 
     private var contentSize: CGSize {
         CGSize(
@@ -734,7 +833,8 @@ private struct PolaroidCardView: View {
                 if let displayImage {
                     Image(uiImage: displayImage)
                         .resizable()
-                        .scaledToFit()
+                        // 缩略图已按目标比例裁切；这里再兜一层填充裁切，避免留白。
+                        .scaledToFill()
                         .scaleEffect(zoomScale)
                         .offset(panOffset)
                 } else if failed {
@@ -747,33 +847,56 @@ private struct PolaroidCardView: View {
                 }
             }
             .frame(width: contentSize.width, height: contentSize.height)
-            .clipped()
+            .clipShape(
+                RoundedRectangle(cornerRadius: Theme.Polaroid.photoCorner, style: .continuous)
+            )
             .offset(y: (StageStackPolicy.paperTop - StageStackPolicy.paperBottom) / 2)
         }
         .frame(width: size.width, height: size.height)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Polaroid.corner, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Polaroid.corner, style: .continuous)
                 .strokeBorder(Theme.Polaroid.edge, lineWidth: 0.8)
         }
-        .shadow(color: .black.opacity(0.22), radius: 8, x: 0, y: 5)
+        .shadow(color: Theme.Polaroid.shadow, radius: 10, x: 0, y: 6)
         .task(id: item.id) {
+            let requestID = item.id
+            failed = false
+
             if let cachedImage {
-                image = cachedImage
-                onImageLoaded?(cachedImage)
+                loaded = LoadedThumbnail(id: requestID, image: cachedImage)
+                reportImage()
                 return
             }
+
             let target = CGSize(
                 width: contentSize.width * UIScreen.main.scale,
                 height: contentSize.height * UIScreen.main.scale
             )
-            if let loaded = await thumbnails.image(for: item.id, targetSize: target) {
-                image = loaded
-                onImageLoaded?(loaded)
-            } else {
+            let result = await thumbnails.image(for: requestID, targetSize: target)
+
+            // 回调可能晚于换牌：请求的 asset 必须仍是本卡，且任务未被取消才写入。
+            guard !Task.isCancelled, requestID == item.id else { return }
+            guard let result else {
                 failed = true
+                return
             }
+            loaded = LoadedThumbnail(id: requestID, image: result)
+            reportImage()
         }
+        // 从后排升到前排、或图片晚到时补报一次，保证父层缓存的缩略图始终属于当前 asset。
+        .onChange(of: reportsImage) { _, _ in
+            reportImage()
+        }
+        .onChange(of: loaded?.id) { _, _ in
+            reportImage()
+        }
+    }
+
+    /// 仅在处于前排且图片确实属于本卡时上报。
+    private func reportImage() {
+        guard reportsImage, let loaded, loaded.id == item.id else { return }
+        onImageLoaded?(loaded.image)
     }
 }
 

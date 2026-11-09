@@ -1,197 +1,103 @@
 import SwiftUI
 
-/// 左侧保险箱实体列：只露出箱门，照片左滑时门打开、照片飞入。
+/// 左侧保险箱：挂在墙上的保险箱图标，照片左滑飞入时图标轻跳一下作为反馈。
+///
+/// 位置：整栏垂直居中，并有 25% 的图标宽度超出屏幕左边缘（当作嵌在墙里）。
 struct VaultDoorColumn: View {
     let width: CGFloat
     let count: Int
-    let isConfigured: Bool
-    /// 门是否打开；由外部在“存入”动作的同一时刻置位。
+    /// 照片是否正落入；每次置位触发一次跳动。
     let isOpen: Bool
-    /// 本批待加密队列张数；任务结束统一加密，这里只显示数量。
-    let pendingCount: Int
     let onTap: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.appReduceMotion) private var appReduceMotion
 
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
-    private var compact: Bool { width < 88 }
+
+    /// 跳动关键帧值；用结构体承载，便于 KeyframeTrack 驱动。
+    private struct VaultBounce {
+        var lift: CGFloat = 0
+        var scale: CGFloat = 1
+    }
+
+    /// 每次照片落入自增，作为跳动触发器；不绑定 `isOpen` 的回落时刻。
+    @State private var bounceToken = 0
+
+    /// 图标边长：跟着左栏收放；同时被 HomeView 用来算飞入落点。
+    static func iconSize(for width: CGFloat) -> CGFloat {
+        min(max(64, width * 1.05), 132)
+    }
 
     var body: some View {
-        VStack(spacing: Theme.Spacing.xs) {
+        GeometryReader { proxy in
+            let size = Self.iconSize(for: width)
+            // 图标中心落在屏幕坐标 0.25×边长处：左边缘正好有 25% 在屏幕外。
+            let originX = proxy.frame(in: .global).minX
+            let centerX = 0.25 * size - originX
+
             Button(action: onTap) {
-                doorStack
+                vaultIcon(size: size)
             }
             .buttonStyle(.plain)
+            .frame(width: size, height: size)
+            .contentShape(RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
+            .position(x: centerX, y: proxy.size.height / 2)
             .accessibilityLabel("私密保险箱，已存 \(count) 件")
             .accessibilityHint("点按查看预览，解锁后可管理")
-
-            intakeFooter
         }
         .frame(width: width)
+        .frame(maxHeight: .infinity)
+        .onChange(of: isOpen) { _, open in
+            guard open else { return }
+            bounceToken += 1
+        }
     }
 
-    // MARK: - 队列计数
+    // MARK: - 实体
 
-    private var intakeFooter: some View {
-        VStack(spacing: 2) {
-            Text("待加密")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Theme.Text.tertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Text("\(pendingCount) 张")
-                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(pendingCount > 0 ? Theme.Accent.brass : Theme.Text.secondary)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("本批待加密 \(pendingCount) 张，任务结束时统一加密")
-    }
-
-    // MARK: - 门
-
-    private var doorStack: some View {
-        ZStack(alignment: .leading) {
-            cavity
-            doorPanel
-                .rotation3DEffect(
-                    .degrees(isOpen ? -78 : 0),
-                    axis: (x: 0, y: 1, z: 0),
-                    anchor: .leading,
-                    perspective: reduceMotion ? 0 : 0.6
-                )
-                .shadow(
-                    color: .black.opacity(isOpen ? 0.28 : 0.12),
-                    radius: isOpen ? 14 : 6,
-                    x: isOpen ? 8 : 2,
-                    y: 4
-                )
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .strokeBorder(Theme.Shadow.insetBorder, lineWidth: 1)
-        }
-        .animation(
-            reduceMotion ? .easeOut(duration: 0.14) : .easeOut(duration: 0.28),
-            value: isOpen
-        )
-    }
-
-    /// 门后腔体：门开时可见，暗示“里面能放东西”。
-    private var cavity: some View {
+    private func vaultIcon(size: CGFloat) -> some View {
         ZStack {
-            LinearGradient(
-                colors: [.black.opacity(0.88), Theme.Surface.sunken],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            // 照片落入时的暖光，只做呼吸式淡入淡出。
+            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                .fill(Theme.Accent.brass.opacity(0.4))
+                .frame(width: size * 0.9, height: size * 0.9)
+                .blur(radius: size * 0.22)
+                .opacity(isOpen ? 1 : 0)
+                .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: isOpen)
 
-            VStack(spacing: Theme.Spacing.sm) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Theme.Accent.brass.opacity(0.35))
-                    .frame(height: 3)
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Theme.Accent.brass.opacity(0.22))
-                    .frame(height: 3)
-                Spacer(minLength: 0)
+            Image("icon_vault")
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 6)
+        }
+        .frame(width: size, height: size)
+        .keyframeAnimator(initialValue: VaultBounce(), trigger: bounceToken) { content, value in
+            content
+                .offset(y: value.lift)
+                .scaleEffect(value.scale, anchor: .bottom)
+        } keyframes: { _ in
+            // 轻跳后落回：幅度与时长对齐纸篓晃动，降低动效时更短更小。
+            KeyframeTrack(\.lift) {
+                CubicKeyframe(reduceMotion ? -2 : -7, duration: reduceMotion ? 0.07 : 0.10)
+                CubicKeyframe(0, duration: reduceMotion ? 0.10 : 0.18)
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 12)
-        }
-    }
-
-    private var doorPanel: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Theme.Accent.brass.opacity(0.92),
-                            Theme.Accent.brass.opacity(0.62),
-                            Theme.Accent.brass.opacity(0.86)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                      )
-                )
-
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .strokeBorder(Theme.Shadow.raisedBorder, lineWidth: 1)
-                .padding(1)
-
-            VStack(spacing: compact ? 8 : 14) {
-                dial
-                    .frame(width: compact ? 26 : 34, height: compact ? 26 : 34)
-
-                if !compact {
-                    Text("SUPER")
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
-                        .tracking(1.4)
-                        .foregroundStyle(Theme.Surface.base.opacity(0.9))
-                }
-
-                Spacer(minLength: 0)
-
-                countBadge
+            KeyframeTrack(\.scale) {
+                CubicKeyframe(reduceMotion ? 1.02 : 1.06, duration: reduceMotion ? 0.07 : 0.10)
+                CubicKeyframe(1, duration: reduceMotion ? 0.10 : 0.18)
             }
-            .padding(.vertical, compact ? 10 : 16)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var dial: some View {
-        ZStack {
-            Circle()
-                .fill(Theme.Surface.raised)
-                .shadow(color: Theme.Shadow.dark.opacity(0.7), radius: 3, x: 1.5, y: 1.5)
-                .shadow(color: Theme.Shadow.highlight, radius: 3, x: -1.5, y: -1.5)
-
-            Circle()
-                .strokeBorder(Theme.Accent.brass.opacity(0.8), lineWidth: 1.2)
-                .padding(3)
-
-            Image(systemName: isConfigured ? "lock.fill" : "lock.open")
-                .font(.system(size: compact ? 9 : 11, weight: .semibold))
-                .foregroundStyle(Theme.Accent.brass)
-        }
-    }
-
-    private var countBadge: some View {
-        VStack(spacing: 0) {
-            Text("\(min(count, 99))")
-                .font(.system(size: compact ? 13 : 15, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundStyle(Theme.Surface.base)
-            Text("件")
-                .font(.system(size: 8, weight: .medium))
-                .foregroundStyle(Theme.Surface.base.opacity(0.72))
         }
     }
 }
 
 #Preview {
     HStack(spacing: 12) {
-        VaultDoorColumn(
-            width: 78, count: 5, isConfigured: true, isOpen: false,
-            pendingCount: 3,
-            onTap: {}
-        )
-        VaultDoorColumn(
-            width: 78, count: 5, isConfigured: true, isOpen: true,
-            pendingCount: 10,
-            onTap: {}
-        )
-        VaultDoorColumn(
-            width: 148, count: 0, isConfigured: false, isOpen: false,
-            pendingCount: 0,
-            onTap: {}
-        )
+        VaultDoorColumn(width: 78, count: 5, isOpen: false, onTap: {})
+        VaultDoorColumn(width: 78, count: 5, isOpen: true, onTap: {})
+        VaultDoorColumn(width: 148, count: 0, isOpen: false, onTap: {})
     }
     .frame(height: 460)
     .padding()
-    .background(Theme.Surface.base)
+    .background(Theme.Scenery.backdrop)
 }

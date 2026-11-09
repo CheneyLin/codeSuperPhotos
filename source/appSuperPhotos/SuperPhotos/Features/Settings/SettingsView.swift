@@ -17,6 +17,11 @@ struct SettingsView: View {
 
     private let initialRoute: SettingsRoute?
     @Binding private var requestedRoute: SettingsRoute?
+    /// 延后列表（原入口在收藏夹列底部，现统一放到设置里）。
+    private let snooze: SnoozeStore
+    private let thumbnails: ThumbnailProvider
+    private let onWakeSnoozed: (String) -> Void
+    private let onWakeAllSnoozed: () -> Void
 
     @State private var path: [SettingsRoute] = []
     @State private var didApplyInitialRoute = false
@@ -25,16 +30,25 @@ struct SettingsView: View {
     @State private var isConfigured = false
     @State private var isVaultSetupPresented = false
     @State private var isVaultResetPresented = false
+    @State private var isSnoozeListPresented = false
     @AppStorage(VaultAutoLock.defaultsKey) private var autoLockSeconds = VaultAutoLock.immediate.rawValue
 
     private let gigabyte: Int64 = 1024 * 1024 * 1024
 
     init(
         initialRoute: SettingsRoute? = nil,
-        requestedRoute: Binding<SettingsRoute?> = .constant(nil)
+        requestedRoute: Binding<SettingsRoute?> = .constant(nil),
+        snooze: SnoozeStore,
+        thumbnails: ThumbnailProvider,
+        onWakeSnoozed: @escaping (String) -> Void,
+        onWakeAllSnoozed: @escaping () -> Void
     ) {
         self.initialRoute = initialRoute
         self._requestedRoute = requestedRoute
+        self.snooze = snooze
+        self.thumbnails = thumbnails
+        self.onWakeSnoozed = onWakeSnoozed
+        self.onWakeAllSnoozed = onWakeAllSnoozed
     }
 
     var body: some View {
@@ -42,6 +56,7 @@ struct SettingsView: View {
             Form {
                 appearanceSection
                 statisticsSection
+                snoozeSection
                 vaultSection
                 vipSection
                 aboutSection
@@ -75,6 +90,15 @@ struct SettingsView: View {
             }
             .fullScreenCover(isPresented: $isVaultSetupPresented) {
                 VaultLockView()
+            }
+            .sheet(isPresented: $isSnoozeListPresented) {
+                SnoozeListView(
+                    records: snooze.records,
+                    thumbnails: thumbnails,
+                    onWake: onWakeSnoozed,
+                    onWakeAll: onWakeAllSnoozed,
+                    onClose: { isSnoozeListPresented = false }
+                )
             }
             .sheet(isPresented: $isVaultResetPresented, onDismiss: {
                 isConfigured = vault.isConfigured
@@ -165,6 +189,33 @@ struct SettingsView: View {
             Text("统计")
         } footer: {
             Text("免费版提供今日、本周与累计；本月与方式偏好属于 VIP 权益。")
+        }
+    }
+
+    // MARK: - 延后
+
+    /// 延后入口。数量为 0 也保留这一行：用户可以进列表确认“确实没有延后”，
+    /// 列表本身的空态由 SnoozeListView 提供。
+    private var snoozeSection: some View {
+        Section {
+            Button {
+                isSnoozeListPresented = true
+            } label: {
+                HStack {
+                    Text("延后处理 \(snooze.count) 项")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("查看延后中的照片，可单张恢复或全部恢复")
+        } header: {
+            Text("延后")
+        } footer: {
+            Text("延后中的照片到期前不会进入舞台；可在这里逐张恢复或全部恢复。")
         }
     }
 
@@ -341,9 +392,14 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView()
-        .environment(EntitlementStore())
-        .environment(VaultStore())
-        .environment(AppSettings())
-        .environment(StatisticsService())
+    SettingsView(
+        snooze: SnoozeStore(),
+        thumbnails: ThumbnailProvider(),
+        onWakeSnoozed: { _ in },
+        onWakeAllSnoozed: {}
+    )
+    .environment(EntitlementStore())
+    .environment(VaultStore())
+    .environment(AppSettings())
+    .environment(StatisticsService())
 }

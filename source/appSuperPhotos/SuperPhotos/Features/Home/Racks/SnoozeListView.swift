@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 延后管理：查看延后中的照片与剩余天数，可单张恢复或全部恢复。
-/// 入口在右侧收藏夹列底部。
+/// 入口在设置页「延后处理 N 项」。
 struct SnoozeListView: View {
     let records: [SnoozeRecord]
     let thumbnails: ThumbnailProvider

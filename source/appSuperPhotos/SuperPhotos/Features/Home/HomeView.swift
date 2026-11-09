@@ -1,6 +1,19 @@
 import SwiftUI
 import UIKit
 
+/// 桌面 / 舞台的呈现状态。
+///
+/// 用引用类型而不是 `@State` 值：桌面按钮的 `onResume` 闭包可能持有旧一版
+/// `HomeView` 副本，值类型 `@State` 在这种副本上的写入不一定会让已安装的
+/// 视图刷新；引用对象的写入始终通知观察者。
+@Observable
+final class WorkspacePresentation {
+    var isPresented = false
+
+    func present() { isPresented = true }
+    func dismiss() { isPresented = false }
+}
+
 struct HomeView: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(VaultStore.self) private var vault
@@ -17,7 +30,7 @@ struct HomeView: View {
     /// 任务式整理：一次最多 100 张，进度与决策持久化。
     @State private var task = CleaningTaskStore()
     /// 是否进入三栏工作区；桌面首屏不展示照片。
-    @State private var isWorkspacePresented = false
+    @State private var workspace = WorkspacePresentation()
     @State private var isAlbumPickerPresented = false
     @State private var isExecutingTaskEnd = false
     @State private var settlement: TaskSettlement?
@@ -40,7 +53,6 @@ struct HomeView: View {
     @State private var snooze = SnoozeStore()
     /// 全屏查看的启动目标；nil 表示未打开。
     @State private var fullscreenRequest: FullscreenRequest?
-    @State private var isSnoozeListPresented = false
 
     /// 当前照片的稳定标识；决策记录后仍能指向同一张。
     @State private var currentID: String?
@@ -48,16 +60,29 @@ struct HomeView: View {
     @State private var zoomScale: CGFloat = 1
 
     @State private var destroy = DestroyCoordinator()
-    /// 坞口被点击时自增，舞台据此播放一次“下滑入待销毁”的等效动画。
+    /// 程序化触发一次“下滑入待销毁”（UI 测试与无障碍路径使用）。
     @State private var discardRequest = 0
+    /// 照片落入纸篓时自增：纸篓左右晃动一次，并播放揉纸声。
+    @State private var binShakeToken = 0
     /// UI 测试用：自增触发一次舞台轻点。
     @State private var tapRequest = 0
     @State private var toastMessage: ToastMessage?
+    /// 底部纸篓实测高度：内容落桌时要避开它，短屏上以不压住纸篓优先。
+    @State private var dockHeight: CGFloat = 112
+    /// 受限访问提示条的实测高度：它占用的那部分要从行高里扣掉。
+    @State private var bannerHeight: CGFloat = 0
+    /// 顶栏钥匙的提示摆动：冷启动后只触发一次。
+    @State private var keySwayToken = 0
+    @State private var hasPlayedKeySway = false
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.Surface.base.ignoresSafeArea()
+                if library.accessState.canBrowse {
+                    SceneryBackgroundView()
+                } else {
+                    Theme.Surface.base.ignoresSafeArea()
+                }
 
                 switch library.accessState {
                 case .notDetermined:
@@ -69,11 +94,8 @@ struct HomeView: View {
                         library.openSettings()
                     }
                 case .authorized, .limited:
-                    if isWorkspacePresented, task.isActive {
-                        taskWorkspace
-                    } else {
-                        deskView
-                    }
+                    // 首屏不再独立成页：桌面状态就是三栏场景里的中央区域。
+                    taskWorkspace
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -92,7 +114,11 @@ struct HomeView: View {
             }) {
                 SettingsView(
                     initialRoute: settingsInitialRoute,
-                    requestedRoute: $settingsInitialRoute
+                    requestedRoute: $settingsInitialRoute,
+                    snooze: snooze,
+                    thumbnails: library.thumbnails,
+                    onWakeSnoozed: { id in wakeUpSnoozed(id: id) },
+                    onWakeAllSnoozed: { wakeAllSnoozed() }
                 )
             }
             .sheet(isPresented: $isAlbumPickerPresented) {
@@ -125,19 +151,6 @@ struct HomeView: View {
                         zoomScale = 1
                     },
                     onClose: { fullscreenRequest = nil }
-                )
-            }
-            .sheet(isPresented: $isSnoozeListPresented) {
-                SnoozeListView(
-                    records: snooze.records,
-                    thumbnails: library.thumbnails,
-                    onWake: { id in
-                        wakeUpSnoozed(id: id)
-                    },
-                    onWakeAll: {
-                        wakeAllSnoozed()
-                    },
-                    onClose: { isSnoozeListPresented = false }
                 )
             }
             .fullScreenCover(item: $settlement) { value in
@@ -176,6 +189,15 @@ struct HomeView: View {
                     snooze.purgeExpired()
                 }
             }
+            // 进入桌面态 5 秒后，保险箱非空才让顶栏钥匙绕上边中点轻晃一次提示。
+            // 冷启动只触发一次；减弱动态效果时由按钮内部把幅度压到 0。
+            .task(id: library.accessState.canBrowse) {
+                guard library.accessState.canBrowse, !hasPlayedKeySway else { return }
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, !hasPlayedKeySway, !vault.records.isEmpty else { return }
+                hasPlayedKeySway = true
+                keySwayToken += 1
+            }
             .onChange(of: library.accessState) { _, state in
                 if state.canBrowse {
                     restoreTaskIfNeeded()
@@ -209,60 +231,65 @@ struct HomeView: View {
         // 单屏工作区的固定高度元素较多，限制在非无障碍字号内避免遮挡；
         // 设置、统计、引导等阅读页仍完整支持 AX 字号。
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .modifier(HitDebugOverlayModifier())
     }
 
     // MARK: - 顶部
 
     private var headerBar: some View {
-        // 左：保险箱入口；中：工作区内显示销毁方式主控；右：设置。
-        HStack(spacing: Theme.Spacing.sm) {
-            vaultHeaderButton
-
-            Spacer(minLength: Theme.Spacing.sm)
-
-            if isWorkspacePresented, task.isActive {
-                DestroyMachineSelector(machine: destroy.machine) { kind in
-                    destroy.switchMachine(kind)
-                }
+        // 洞洞板上的两个悬挂道具：左钥匙进保险箱，右螺丝刀进设置。
+        // 机器类型选择器已按设计稿移除，后续改由底部纸篓区左右滑动切换。
+        HStack(alignment: .top, spacing: 0) {
+            PegboardHookButton(
+                assetName: "icon_vault_keys",
+                title: "私密保险箱，已存 \(vault.records.count) 件",
+                swayToken: keySwayToken
+            ) {
+                openVaultPreview()
             }
 
-            Spacer(minLength: Theme.Spacing.sm)
+            hitDebugToggleArea
 
-            Button {
+            PegboardHookButton(
+                assetName: "icon_tool_screwdriver",
+                title: "设置",
+                iconSize: 50
+            ) {
                 isSettingsPresented = true
-            } label: {
-                Image(systemName: "gearshape")
             }
-            .buttonStyle(.neuIcon)
-            .accessibilityLabel("设置")
         }
-        .padding(.horizontal, Theme.Spacing.page)
-        .padding(.vertical, Theme.Spacing.sm)
-        .background(Theme.Surface.base)
+        .padding(.horizontal, Theme.Spacing.lg)
+        .padding(.top, 2)
     }
 
-    private var vaultHeaderButton: some View {
-        Button {
-            openVaultPreview()
-        } label: {
-            Image(systemName: vault.isConfigured ? "lock.shield.fill" : "lock.shield")
-        }
-        .buttonStyle(NeuIconButtonStyle(tint: Theme.Accent.brass))
-        .overlay(alignment: .topTrailing) {
-            if vault.records.count > 0 {
-                Text("\(min(vault.records.count, 99))")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Theme.Surface.base)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Theme.Accent.brass, in: Capsule())
-                    .offset(x: 4, y: -4)
+    /// 顶栏中间的空白（就是原来的 Spacer 位置）：DEBUG 下长按 2 秒开关命中调试。
+    ///
+    /// 必须是「横向弹性、纵向定高」的占位。`Color` 这类双向弹性视图放进
+    /// `safeAreaInset(edge: .top)` 会接受整屏高度，把顶栏撑满屏幕，下面的
+    /// 三栏工作区、背景、纸篓全被挤出可视区。
+    @ViewBuilder
+    private var hitDebugToggleArea: some View {
+        #if DEBUG
+        Spacer(minLength: 0)
+            .frame(height: 56)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 2) {
+                let enabled = hitDebugToggle()
+                toastMessage = ToastMessage(
+                    text: enabled ? "命中调试：开，点按后看左上角日志" : "命中调试：关",
+                    kind: .info
+                )
             }
-        }
-        .accessibilityLabel("私密保险箱，已存 \(vault.records.count) 件")
+        #else
+        Spacer(minLength: 0)
+        #endif
     }
 
     // MARK: - 桌面
+
+    private var showsStage: Bool {
+        workspace.isPresented && task.isActive
+    }
 
     private var deskView: some View {
         TaskDeskView(
@@ -271,8 +298,10 @@ struct HomeView: View {
             albumTitle: task.albumTitle,
             processed: task.processedCount,
             total: task.totalCount,
+            pendingDestroy: task.destroyCount,
             onStart: { isAlbumPickerPresented = true },
-            onResume: { enterWorkspace() }
+            onResume: { enterWorkspace() },
+            onFinishNow: { finishTaskNow() }
         )
     }
 
@@ -280,163 +309,313 @@ struct HomeView: View {
 
     private var taskWorkspace: some View {
         GeometryReader { proxy in
-            // 两侧各 20%，中间 60%；窄屏（Duo 外屏等）下两侧收到 64pt，保证中间可读。
-            let sideWidth = min(148, max(64, proxy.size.width * 0.2))
+            let size = proxy.size
+            let rowW = size.width.isFinite ? max(0, size.width) : 0
+            let columnGap = Theme.Spacing.sm
+            // 两侧宽度与中栏宽度统一在这里反推：窄屏时先收缩两侧，
+            // 保证中栏至少 120pt，避免「左右栏 + 间距 > 行宽」把中栏算成 0。
+            let columns = workspaceColumns(rowW: rowW)
+            let sideWidth = columns.side
+            let favoriteWidth = columns.favorite
+            let middleWidth = columns.middle
 
-            VStack(spacing: 0) {
-                if library.accessState == .limited {
-                    LimitedAccessBanner {
-                        library.manageLimitedAccess()
+            let contentTopValue = contentTop(in: proxy)
+            let usableH = contentHeight(in: proxy)
+            // 纸篓最多让出「可用高度 − 220」：任何情况下都保留一块可见的内容区，
+            // 不会出现 contentHeight − dockHeight ≤ 0 把行高挤成 0 的情况。
+            let dockBudget = min(dockHeight, max(0, usableH - 220))
+            let fallbackBottom = usableH - dockBudget
+            // 桌面上沿算成 0/负值（坐标系异常）时回退到纸篓上方，避免整行被压没。
+            let benchTopValue = benchTopY(in: proxy)
+            let contentBottom = max(
+                0,
+                min(benchTopValue > 0 ? benchTopValue : fallbackBottom, fallbackBottom)
+            )
+            // 行高显式给出，不再让内层 GeometryReader 反推：
+            // GeometryReader 的最小高度是 0，一旦外层建议高度异常就会被压成 0，
+            // 三栏（尤其被 clipped 的中栏）会整块消失。
+            let rowHeight = max(0, contentBottom - bannerHeight)
+
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    if library.accessState == .limited {
+                        LimitedAccessBanner {
+                            library.manageLimitedAccess()
+                        }
+                        .padding(.horizontal, Theme.Spacing.page)
+                        .padding(.bottom, Theme.Spacing.sm)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: BannerHeightKey.self,
+                                    value: geometry.size.height
+                                )
+                            }
+                        }
                     }
-                    .padding(.horizontal, Theme.Spacing.page)
-                    .padding(.bottom, Theme.Spacing.sm)
+
+                    HStack(alignment: .top, spacing: columnGap) {
+                        VaultDoorColumn(
+                            width: sideWidth,
+                            count: vault.records.count,
+                            isOpen: vaultDoorOpen,
+                            onTap: { openVaultPreview() }
+                        )
+                        .frame(width: sideWidth, height: rowHeight)
+                        // 这里不裁剪：图标中心落在屏幕坐标 0.25×边长处，
+                        // 左侧 25% 必须真的在屏幕外，箱体左缘贴住屏幕左缘（0 边距）。
+
+                        // 中栏：内容层占满整行并居中，LCD 作为顶部覆盖层叠在上面。
+                        // 舞台与桌面共用这一条中线，也和左右栏（整行居中）同一套落点规则；
+                        // LCD 不占垂直空间，因此不会把舞台整体往下推。
+                        ZStack(alignment: .top) {
+                            ZStack {
+                                if showsStage {
+                                    stageSection(vaultDropOffset: vaultDropOffset(in: proxy, sideWidth: sideWidth))
+                                        .frame(width: middleWidth, height: rowHeight)
+                                        .transition(
+                                            .asymmetric(
+                                                insertion: .scale(scale: 0.92, anchor: .center)
+                                                    .combined(with: .opacity),
+                                                removal: .opacity
+                                            )
+                                        )
+                                }
+
+                                // 桌面态内容常驻在最上层，只有“当前该显示的那一层”接收命中。
+                                deskView
+                                    .frame(width: middleWidth, height: rowHeight)
+                                    .clipped()
+                                    .opacity(showsStage ? 0 : 1)
+                                    .allowsHitTesting(!showsStage)
+                                    .accessibilityHidden(showsStage)
+                            }
+                            .frame(width: middleWidth, height: rowHeight)
+                            // 桌面态与舞台态共用的唯一下移量：只改
+                            // Theme.Metrics.workspaceMiddleOffset 这一处，两种状态一起动。
+                            // LCD 在下面的 ZStack 里，不参与这个偏移。
+                            .offset(y: Theme.Metrics.workspaceMiddleOffset)
+                            .animation(
+                                Theme.Motion.animation(.drawer, reduceMotion: reduceMotion),
+                                value: showsStage
+                            )
+                            .onChange(of: showsStage) { _, newValue in
+                                hitDebugNote("showsStage->\(newValue) workspace=\(workspace.isPresented)")
+                            }
+
+                            // 液晶屏占位：默认态放手势提示，处理态放进度。
+                            // 宽度由中栏锁定，高度固定，只是浮在内容层顶部。
+                            LCDScreen(
+                                mode: showsStage
+                                    ? .progress(
+                                        pendingDelete: task.destroyCount,
+                                        processed: task.processedCount,
+                                        total: task.totalCount
+                                    )
+                                    : .tips,
+                                isPauseEnabled: showsStage && !isExecutingTaskEnd && !task.isFinished,
+                                onPause: { pauseTask() }
+                            )
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .frame(width: middleWidth)
+                        }
+                        .frame(width: middleWidth, height: rowHeight)
+                        // 中栏画在左右栏之上：舞台卡片飞出时要跨过两侧实体。
+                        .zIndex(1)
+                        .hitDebugRegion("中栏")
+
+                        FavoriteAlbumColumn(
+                            // 比左侧保险箱宽一档，整体放大；中栏宽度已按这个宽度反推。
+                            width: favoriteWidth,
+                            albums: albumService.userAlbums,
+                            selectedAlbumID: settings.defaultAlbumID,
+                            isReceiving: favoritesReceiving,
+                            onSelect: { selectDefaultAlbum($0) }
+                        )
+                        .frame(height: rowHeight)
+                        .clipped()
+                    }
+                    // 右侧只留很小边距：收藏夹整体贴近右边缘，同时避开安全区。
+                    .padding(.leading, Theme.Spacing.md)
+                    .padding(.trailing, 2)
+                    // 行高锁死为显式值，三栏谁都不能把它撑大。
+                    .frame(width: rowW, height: rowHeight, alignment: .top)
+                    // 舞台要接住抽屉带来的缩放与失焦；两侧实体不参与缩放。
+                    .allowsHitTesting(!isAlbumsDrawerPresented && !isVaultDrawerPresented)
                 }
+                .padding(.bottom, max(0, size.height - contentBottom))
 
-                TaskProgressHeader(
-                    albumTitle: task.albumTitle,
-                    processed: task.processedCount,
-                    total: task.totalCount,
-                    isFinished: task.isFinished,
-                    isExecuting: isExecutingTaskEnd,
-                    onPause: { pauseTask() },
-                    onFinish: {
-                        Task { await executeTaskEnd() }
+                dockSection
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: DockHeightKey.self,
+                                value: geometry.size.height
+                            )
+                        }
                     }
-                )
-
-                HStack(alignment: .top, spacing: Theme.Spacing.sm) {
-                    VaultDoorColumn(
-                        width: sideWidth,
-                        count: vault.records.count,
-                        isConfigured: vault.isConfigured,
-                        isOpen: vaultDoorOpen,
-                        pendingCount: task.vaultCount,
-                        onTap: { openVaultPreview() }
-                    )
-
-                    Group {
-                        stageSection(sideWidth: sideWidth)
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    FavoriteAlbumColumn(
-                        width: sideWidth,
-                        albums: albumService.userAlbums,
-                        selectedAlbumID: settings.defaultAlbumID,
-                        isReceiving: favoritesReceiving,
-                        snoozedCount: snooze.count,
-                        onSelect: { selectDefaultAlbum($0) },
-                        onOpenAlbums: { openAlbums() },
-                        onOpenSnoozed: { isSnoozeListPresented = true }
-                    )
-                }
-                .padding(.horizontal, Theme.Spacing.md)
-                .frame(maxHeight: .infinity)
-                // 舞台要接住抽屉带来的缩放与失焦；两侧实体不参与缩放。
-                .allowsHitTesting(!isAlbumsDrawerPresented && !isVaultDrawerPresented)
             }
+            .onPreferenceChange(DockHeightKey.self) { dockHeight = $0 }
+            .onPreferenceChange(BannerHeightKey.self) { bannerHeight = $0 }
+            // 真机可读的中间量：长按顶栏中间或 SP_HIT_DEBUG=1 时显示在 HUD 右上角。
+            .layoutProbe(
+                LayoutProbe(
+                    rowW: rowW,
+                    rowH: rowHeight,
+                    sideW: sideWidth,
+                    favoriteW: favoriteWidth,
+                    middleW: middleWidth,
+                    minY: proxy.frame(in: .global).minY,
+                    safeTop: proxy.safeAreaInsets.top,
+                    safeBottom: proxy.safeAreaInsets.bottom,
+                    contentTop: contentTopValue,
+                    contentHeight: usableH,
+                    dockH: dockHeight,
+                    benchTop: benchTopValue,
+                    contentBottom: contentBottom,
+                    showsStage: showsStage
+                )
+            )
             .overlay {
                 if isAlbumsDrawerPresented {
-                    albumsDrawer(width: proxy.size.width)
+                    albumsDrawer(width: size.width)
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                dockSection
             }
         }
     }
 
-    private func stageSection(sideWidth: CGFloat) -> some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            PhotoStageView(
-                items: visibleItems,
-                currentIndex: stageIndex,
-                thumbnails: library.thumbnails,
-                isInteractionEnabled: !isAlbumsDrawerPresented
-                    && !isVaultDrawerPresented
-                    && !isExecutingTaskEnd,
-                canDiscard: task.isActive && !isExecutingTaskEnd,
-                canFavorite: settings.defaultAlbumID != nil,
-                discardRequest: discardRequest,
-                tapRequest: tapRequest,
-                sideDropOffset: sideWidth + Theme.Spacing.sm + 26,
-                onAdvance: { id in
-                    advanceCurrent(from: id)
-                },
-                onOpenFullscreen: { id in
-                    openFullscreen(id: id)
-                },
-                onVaultStore: { id in
-                    vaultSwipe(id)
-                },
-                onFavoriteStore: { id in
-                    favoriteSwipe(id)
-                },
-                onFavoriteRejected: {
-                    toastMessage = ToastMessage(
-                        text: "先在右侧选择一个默认收藏夹",
-                        kind: .warning
-                    )
-                },
-                onDiscard: { id in
-                    discardCurrent(id: id)
-                },
-                onSnooze: { id, days in
-                    snoozeCurrent(id: id, days: days)
-                },
-                onZoomChanged: { zoomed, scale in
-                    isZoomed = zoomed
-                    zoomScale = scale
-                }
-            )
-            .overlay(alignment: .topTrailing) {
-                if isZoomed {
-                    Text(String(format: "%.1f×", zoomScale))
-                        .font(Theme.Typography.caption.monospacedDigit())
-                        .foregroundStyle(Theme.Text.secondary)
-                        .padding(.horizontal, Theme.Spacing.sm)
-                        .padding(.vertical, 4)
-                        .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.chip)
-                        .padding(.top, Theme.Spacing.lg)
-                        .padding(.trailing, Theme.Spacing.xl)
-                        .allowsHitTesting(false)
-                }
+    /// 三栏宽度的唯一来源：两侧按行宽 20% 取、收藏夹比保险箱宽 10pt，
+    /// 中栏吃掉剩余；剩余不足 120pt 时按比例收缩两侧，避免中栏被算成 0。
+    private struct WorkspaceColumns {
+        var side: CGFloat
+        var favorite: CGFloat
+        var middle: CGFloat
+    }
+
+    private func workspaceColumns(rowW: CGFloat) -> WorkspaceColumns {
+        let horizontalPadding = Theme.Spacing.md + 2
+        let gap = Theme.Spacing.sm
+        let usableW = max(0, rowW - horizontalPadding - gap * 2)
+        var side = min(148, max(56, rowW * 0.2))
+        var favorite = min(168, max(64, side + 10))
+        var middle = max(0, usableW - side - favorite)
+        if middle < 120 {
+            let budget = max(0, usableW - 120)
+            side = min(side, budget * 0.45)
+            favorite = min(favorite, max(0, budget - side))
+            middle = max(0, usableW - side - favorite)
+        }
+        return WorkspaceColumns(side: side, favorite: favorite, middle: middle)
+    }
+
+    /// 内容界面的顶部（全局坐标）。必须把顶部安全区算进去：
+    /// 有的状态下 `GeometryReader` 的 frame 不含安全区（minY = 头部高度），
+    /// 有的状态 frame 从屏幕原点开始（minY = 0、安全区 = 头部高度）；
+    /// 只减 `minY` 会让同一块屏幕算出两种行高，左右栏的垂直中心随之漂移。
+    private func contentTop(in proxy: GeometryProxy) -> CGFloat {
+        proxy.frame(in: .global).minY + proxy.safeAreaInsets.top
+    }
+
+    /// 工作区实际可用的内容高度，同样与 frame 是否包含安全区无关。
+    private func contentHeight(in proxy: GeometryProxy) -> CGFloat {
+        max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom)
+    }
+
+    /// 桌面（台面）上沿在内容坐标系中的位置；与 SceneryBackgroundView 使用同一份比例。
+    private func benchTopY(in proxy: GeometryProxy) -> CGFloat {
+        let metrics = SceneryLayout.metrics(in: windowSize)
+        return metrics.benchTopY - contentTop(in: proxy)
+    }
+
+    /// 背景图按窗口尺寸铺满，落点计算需要同一份窗口尺寸。
+    private var windowSize: CGSize {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.bounds.size
+            ?? CGSize(width: 390, height: 844)
+    }
+
+    /// 左滑飞出落点：保险箱图标中心在屏幕坐标 0.25×边长处，
+    /// 所以从舞台中心（≈ 屏幕中心）往左的位移是屏幕半宽减去这段距离。
+    private func vaultDropOffset(in proxy: GeometryProxy, sideWidth: CGFloat) -> CGFloat {
+        let iconSize = VaultDoorColumn.iconSize(for: sideWidth)
+        return max(0, proxy.size.width / 2 - 0.25 * iconSize)
+    }
+
+    private func stageSection(vaultDropOffset: CGFloat) -> some View {
+        // 进度信息已移到中栏上方的液晶屏里，这里只负责照片舞台。
+        PhotoStageView(
+            items: visibleItems,
+            currentIndex: stageIndex,
+            thumbnails: library.thumbnails,
+            isInteractionEnabled: !isAlbumsDrawerPresented
+                && !isVaultDrawerPresented
+                && !isExecutingTaskEnd,
+            canDiscard: task.isActive && !isExecutingTaskEnd,
+            canFavorite: settings.defaultAlbumID != nil,
+            discardRequest: discardRequest,
+            tapRequest: tapRequest,
+            sideDropOffset: vaultDropOffset,
+            onAdvance: { id in
+                advanceCurrent(from: id)
+            },
+            onOpenFullscreen: { id in
+                openFullscreen(id: id)
+            },
+            onVaultStore: { id in
+                vaultSwipe(id)
+            },
+            onFavoriteStore: { id in
+                favoriteSwipe(id)
+            },
+            onFavoriteRejected: {
+                toastMessage = ToastMessage(
+                    text: "先在右侧选择一个默认收藏夹",
+                    kind: .warning
+                )
+            },
+            onDiscard: { id in
+                discardCurrent(id: id)
+            },
+            onSnooze: { id, days in
+                snoozeCurrent(id: id, days: days)
+            },
+            onZoomChanged: { zoomed, scale in
+                isZoomed = zoomed
+                zoomScale = scale
             }
-
-            infoBar
-
-            Text("轻点全屏 · 上滑延后 · 左滑保险箱 · 右滑收藏夹 · 下滑待销毁")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Text.tertiary)
-                .padding(.bottom, Theme.Spacing.sm)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .padding(.horizontal, Theme.Spacing.sm)
+        )
+        .overlay(alignment: .topTrailing) {
+            if isZoomed {
+                Text(String(format: "%.1f×", zoomScale))
+                    .font(Theme.Typography.caption.monospacedDigit())
+                    .foregroundStyle(Theme.Text.secondary)
+                    .padding(.horizontal, Theme.Spacing.sm)
+                    .padding(.vertical, 4)
+                    .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.chip)
+                    .padding(.top, Theme.Spacing.lg)
+                    .padding(.trailing, Theme.Spacing.xl)
+                    .allowsHitTesting(false)
+            }
         }
         .scaleEffect(isAlbumsDrawerPresented ? 0.96 : 1)
         .animation(
             Theme.Motion.animation(.drawer, reduceMotion: reduceMotion),
             value: isAlbumsDrawerPresented
         )
+        .onAppear {
+            hitDebugNote("stage appear items=\(visibleItems.count)")
+        }
     }
 
-    // MARK: - 销毁坞
-
-    private var isDockExpanded: Bool {
-        task.destroyCount > 0
-    }
+    // MARK: - 纸篓
 
     private var dockSection: some View {
         DestroyDock(
-            machine: destroy.machine,
-            phase: destroy.phase,
-            progress: destroy.progress,
             pendingCount: task.destroyCount,
-            isExpanded: isDockExpanded,
-            bottomInset: max(0, bottomSafeInset - 8),
-            onTapMouth: {
-                requestDiscardCurrent()
-            }
+            shakeToken: binShakeToken,
+            bottomInset: max(0, bottomSafeInset - 8)
         )
     }
 
@@ -511,27 +690,6 @@ struct HomeView: View {
             .transition(.move(edge: .trailing))
         }
         .transition(.opacity)
-    }
-
-    private var infoBar: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            if let item = currentItem {
-                Text(item.shortDateText)
-                Text("·").foregroundStyle(Theme.Text.tertiary)
-                Text(item.kind.displayName)
-                Text("·").foregroundStyle(Theme.Text.tertiary)
-                Text("\(Int(item.pixelSize.width))×\(Int(item.pixelSize.height))")
-            } else {
-                Text("—")
-            }
-        }
-        .font(Theme.Typography.caption.monospacedDigit())
-        .foregroundStyle(Theme.Text.secondary)
-        .lineLimit(1)
-        .padding(.horizontal, Theme.Spacing.lg)
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .neuSurface(.inset, cornerRadius: Theme.Radius.card)
-        .padding(.horizontal, Theme.Spacing.page)
     }
 
     private func presentOnboardingIfNeeded() {
@@ -618,7 +776,7 @@ struct HomeView: View {
 
         task.start(albumLocalID: albumID, albumTitle: title, items: items)
         currentID = task.remainingItems.first?.id
-        isWorkspacePresented = true
+        workspace.present()
         closeAlbums()
         closeVaultDrawer()
 
@@ -628,23 +786,39 @@ struct HomeView: View {
     }
 
     private func enterWorkspace() {
+        hitDebugNote("resume active=\(task.isActive) finished=\(task.isFinished) remaining=\(task.remainingItems.count)")
         guard task.isActive else {
             isAlbumPickerPresented = true
             return
         }
         clampCurrentID()
-        isWorkspacePresented = true
+        workspace.present()
+        hitDebugNote("workspace=\(workspace.isPresented) showsStage=\(showsStage)")
         if task.isFinished {
             Task { await executeTaskEnd() }
         }
     }
 
     private func pauseTask() {
-        isWorkspacePresented = false
+        hitDebugNote("pause")
+        workspace.dismiss()
         isAlbumsDrawerPresented = false
         isVaultDrawerPresented = false
         resetStage()
         toastMessage = ToastMessage(text: "已保留本批进度，下次可继续", kind: .info)
+    }
+
+    /// 直接结束本批：未决定的照片一律按“保留”归档，其余队列照常走结算。
+    /// 删除/加密仍由系统确认框把关，不额外弹 App 自建确认。
+    private func finishTaskNow() {
+        hitDebugNote("finishNow remaining=\(task.remainingItems.count)")
+        guard task.isActive, !isExecutingTaskEnd else { return }
+        for item in task.remainingItems {
+            task.record(id: item.id, decision: .keep)
+        }
+        guard task.isFinished else { return }
+        workspace.dismiss()
+        Task { await executeTaskEnd() }
     }
 
     private func restoreTaskIfNeeded() {
@@ -775,7 +949,7 @@ struct HomeView: View {
 
         task.reset()
         resetStage()
-        isWorkspacePresented = false
+        workspace.dismiss()
         settlement = result
     }
 
@@ -896,6 +1070,7 @@ struct HomeView: View {
     // MARK: 收藏夹
 
     private func selectDefaultAlbum(_ album: AlbumItem) {
+        hitDebugNote("favorite → \(album.title)")
         settings.setDefaultAlbum(id: album.id, title: album.title)
         UISelectionFeedbackGenerator().selectionChanged()
     }
@@ -923,13 +1098,21 @@ struct HomeView: View {
             return
         }
 
+        // 侧栏脉冲只由 FavoriteAlbumColumn 内部的 .animation(value: isReceiving) 驱动，
+        // 这里不放进任何 withAnimation，避免和舞台换牌共用动画事务。
         favoritesReceiving = true
 
         let nextID = idAfterRemoving(id)
-        task.record(id: id, decision: .keep)
-        currentID = nextID
-        isZoomed = false
-        zoomScale = 1
+        // 舞台数据的推进显式禁用动画：左右滑会在飞出动画开始时就改 items，
+        // 若被任何外层动画事务带上，新前排会被插值淡入而露出后面的卡。
+        var noAnimation = Transaction()
+        noAnimation.disablesAnimations = true
+        withTransaction(noAnimation) {
+            task.record(id: id, decision: .keep)
+            currentID = nextID
+            isZoomed = false
+            zoomScale = 1
+        }
         handleTaskProgress()
 
         Task {
@@ -961,10 +1144,15 @@ struct HomeView: View {
         guard task.isActive, !isExecutingTaskEnd else { return }
 
         let nextID = idAfterRemoving(id)
-        task.record(id: id, decision: .vault)
-        currentID = nextID
-        isZoomed = false
-        zoomScale = 1
+        // 同上：舞台推进禁止动画，侧栏开门动画只包它自己的布尔量。
+        var noAnimation = Transaction()
+        noAnimation.disablesAnimations = true
+        withTransaction(noAnimation) {
+            task.record(id: id, decision: .vault)
+            currentID = nextID
+            isZoomed = false
+            zoomScale = 1
+        }
 
         withAnimation(
             reduceMotion ? .easeOut(duration: 0.14) : .easeOut(duration: 0.28)
@@ -1010,20 +1198,14 @@ struct HomeView: View {
 
     // MARK: 销毁
 
-    /// 点击坞口只触发一次“下滑入待销毁”，真正的决策发生在舞台回调里。
-    private func requestDiscardCurrent() {
-        guard task.isActive, !isExecutingTaskEnd else { return }
-        guard currentItem != nil else {
-            toastMessage = ToastMessage(text: "当前没有可加入的照片", kind: .warning)
-            return
-        }
-        discardRequest += 1
-    }
-
     /// 舞台完成下滑动画后调用：记录“废纸篓”决策并推进。
     private func discardCurrent(id: String) {
         guard task.isActive, !isExecutingTaskEnd else { return }
         guard task.items.contains(where: { $0.id == id }) else { return }
+
+        // 照片落进纸篓：纸篓左右晃动一次，并播放揉纸声。
+        binShakeToken += 1
+        sound.play(.paperCrunch)
 
         let nextID = idAfterRemoving(id)
         task.record(id: id, decision: .destroy)
@@ -1036,7 +1218,7 @@ struct HomeView: View {
     /// UI 测试用：确保有任务可操作。
     private func ensureUITestTask() {
         guard !task.isActive else {
-            isWorkspacePresented = true
+            workspace.present()
             clampCurrentID()
             return
         }
@@ -1052,7 +1234,7 @@ struct HomeView: View {
         )
         guard !items.isEmpty else { return }
         task.start(albumLocalID: nil, albumTitle: "全部照片", items: items)
-        isWorkspacePresented = true
+        workspace.present()
         currentID = task.remainingItems.first?.id
     }
 
@@ -1240,5 +1422,21 @@ struct HomeView: View {
             return
         }
         #endif
+    }
+}
+
+/// 底部纸篓的实际高度：用于把三栏内容的底边让到纸篓上方。
+private struct DockHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 112
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// 受限访问提示条的实际高度：它占用的空间要从三栏行高里扣掉。
+private struct BannerHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

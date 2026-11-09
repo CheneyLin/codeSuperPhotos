@@ -23,6 +23,11 @@ enum Theme {
             light: 0xE2E6EB, dark: 0x191C21,
             lightHighContrast: 0xE8ECF0, darkHighContrast: 0x0A0C0E
         )
+        /// 纯白按钮底：作为实体道具，深浅模式都保持白色。
+        static let pill = dynamic(
+            light: 0xFFFFFF, dark: 0xFFFFFF,
+            lightHighContrast: 0xFFFFFF, darkHighContrast: 0xFFFFFF
+        )
     }
 
     enum Text {
@@ -33,6 +38,11 @@ enum Theme {
         static let secondary = dynamic(
             light: 0x5B6672, dark: 0xA7B1BC,
             lightHighContrast: 0x333B44, darkHighContrast: 0xD6DDE4
+        )
+        /// 纯白胶囊按钮上的文字：白底在深浅模式都不变，文字固定用深色保证对比度。
+        static let onWhite = dynamic(
+            light: 0x2B313A, dark: 0x242A32,
+            lightHighContrast: 0x101418, darkHighContrast: 0x101418
         )
         static let tertiary = dynamic(
             light: 0x7A8591, dark: 0x6F7A86,
@@ -73,6 +83,42 @@ enum Theme {
             light: 0xC9C1B2, dark: 0x2E343B,
             lightAlpha: 0.55, darkAlpha: 0.9,
             lightHighContrast: 0x8A8375, darkHighContrast: 0x4A515A
+        )
+        /// 相纸圆角：比旧版 6pt 更圆润
+        static let corner: CGFloat = 14
+        /// 相纸内照片圆角
+        static let photoCorner: CGFloat = 9
+        /// 相纸投影
+        static let shadow = dynamic(
+            light: 0x2B1E12, dark: 0x000000,
+            lightAlpha: 0.22, darkAlpha: 0.55,
+            lightHighContrast: 0x1A1108, darkHighContrast: 0x000000,
+            lightHighContrastAlpha: 0.30, darkHighContrastAlpha: 0.65
+        )
+    }
+
+    /// 场景化桌面：成品背景图的兜底色与道具配色。
+    /// 仅用于主界面外壳，不参与业务语义。
+    enum Scenery {
+        /// 背景图边缘的近似色：首帧与切换深浅时兜底，避免闪白。
+        static let backdrop = dynamic(
+            light: 0xF7E9D6, dark: 0x252A33,
+            lightHighContrast: 0xFCF3E5, darkHighContrast: 0x14171D
+        )
+        /// 木桌面（纸篓落在桌下的投影）
+        static let desk = dynamic(
+            light: 0xC99B67, dark: 0x4A3728,
+            lightHighContrast: 0xB98449, darkHighContrast: 0x5A4433
+        )
+        /// 挂钩金属
+        static let hook = dynamic(
+            light: 0xB3A38B, dark: 0x707C88,
+            lightHighContrast: 0x8E7C5F, darkHighContrast: 0x9BA7B3
+        )
+        /// 天蓝高光（选中描边、开始按钮辉光）
+        static let sky = dynamic(
+            light: 0x4E9FE0, dark: 0x6CBEF7,
+            lightHighContrast: 0x2F7FBF, darkHighContrast: 0x9AD8FF
         )
     }
 
@@ -152,6 +198,10 @@ enum Theme {
         static let stageInset: CGFloat = 12
         /// 抽屉最大宽度
         static let drawerMaxWidth: CGFloat = 320
+        /// 中栏内容（LCD 屏以下的桌面 / 舞台）整体下移量。
+        /// 桌面态与舞台态共用这一个值：调这里，两种状态一起动。
+        /// 保险箱与 LCD 不使用它，位置保持不变。
+        static let workspaceMiddleOffset: CGFloat = 34
     }
 
     // MARK: - 工具
