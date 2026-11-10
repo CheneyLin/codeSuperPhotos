@@ -860,7 +860,7 @@ struct CleaningTaskSnapshot: Codable {
 - 不做重复照片/模糊照片自动识别。
 - 不做 iCloud 备份与跨设备同步。
 - 不做 iPad 独立定制布局（复用 ≥600pt 自适应三栏，见 4.5）。
-- 不做 iPhone Duo 专属功能（只做尺寸自适应，不依赖折叠态私有 API）。
+- 不做 iPhone Duo 专属功能（只做尺寸自适应，不依赖折叠态私有 API）。已引入 iOS 27.1 **公开**铰链 API 适配包作为基建准备，仅注入环境、不驱动任何布局分支，不等于完成适配，见 [iPhone Duo 适配准备说明](./iphone-duo-adaptation.md)。
 - 不做真实内购（二期）。
 - 不做多语言（先 zh-Hans，二期加 en）。
 - 不接入任何第三方 SDK（统计、崩溃、广告一律不接）。
