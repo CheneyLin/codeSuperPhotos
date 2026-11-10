@@ -68,8 +68,8 @@ struct VaultPasswordChangeView: View {
     private func dials(diameter: CGFloat) -> some View {
         HStack(alignment: .top, spacing: Theme.Spacing.lg) {
             DialView(
-                label: "左盘 A · 0–12",
-                count: 13,
+                label: "左盘 A · 0–\(VaultCredentials.maxDialValue)",
+                count: VaultCredentials.dialCount,
                 value: $left,
                 isEnabled: step != .done && lockedSeconds == 0,
                 diameter: diameter
@@ -78,8 +78,8 @@ struct VaultPasswordChangeView: View {
             }
 
             DialView(
-                label: "右盘 B · 0–36",
-                count: 37,
+                label: "右盘 B · 0–\(VaultCredentials.maxDialValue)",
+                count: VaultCredentials.dialCount,
                 value: $right,
                 isEnabled: step != .done && lockedSeconds == 0,
                 diameter: diameter
@@ -109,7 +109,7 @@ struct VaultPasswordChangeView: View {
                 .foregroundStyle(Theme.State.danger)
                 .multilineTextAlignment(.center)
         } else {
-            Text("组合空间 13 × 37 = 481 种。忘记后无法找回。")
+            Text("组合空间 40 × 40 = 1600 种。忘记后无法找回。")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
                 .multilineTextAlignment(.center)

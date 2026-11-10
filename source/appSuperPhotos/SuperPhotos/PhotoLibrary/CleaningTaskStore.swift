@@ -16,6 +16,10 @@ struct CleaningTaskSnapshot: Codable, Equatable, Sendable {
     var kinds: [String: String]
     var decisions: [String: TaskDecision]
     var startedAt: Date
+    /// 本批开始时的每批张数；进度分母与恢复都以它为准，不随设置改动。
+    var batchSize: Int
+    /// 决策写入顺序（旧 → 新）；撤销只回退最后一条。
+    var decisionOrder: [String]
 
     func count(of decision: TaskDecision) -> Int {
         decisions.values.filter { $0 == decision }.count
@@ -23,8 +27,23 @@ struct CleaningTaskSnapshot: Codable, Equatable, Sendable {
 }
 
 enum TaskPolicy {
-    /// 一次任务最多处理的张数。
+    /// 一次任务最多处理的张数（默认值来源）。
     static let batchSize = 100
+    /// 设置项：每批张数，范围 10–200、步长 10。
+    static let batchSizeKey = "task.batchSize"
+    static let batchSizeRange = 10...200
+    static let batchSizeStep = 10
+
+    /// 新建批次时读取的用户设置；未设置或越界时回落到默认值 / 合法区间。
+    static var configuredBatchSize: Int {
+        let stored = UserDefaults.standard.object(forKey: batchSizeKey) as? Int
+        return clampedBatchSize(stored ?? batchSize)
+    }
+
+    static func clampedBatchSize(_ value: Int) -> Int {
+        min(max(value, batchSizeRange.lowerBound), batchSizeRange.upperBound)
+    }
+
     // 任务结束统一执行时不再分批：本批有多少张就一次提交，系统只弹一次确认。
     // 旧的 10 张中途执行阈值 `BatchPolicy.autoConfirmThreshold` 仍保留在
     // BatchPolicy 中供其它模块引用，但不再参与任务结算。
@@ -57,6 +76,12 @@ final class CleaningTaskStore {
     var assetIDs: [String] { snapshot?.assetIDs ?? [] }
     var totalCount: Int { snapshot?.assetIDs.count ?? 0 }
     var processedCount: Int { snapshot?.decisions.count ?? 0 }
+    /// 本批的每批张数：进行中只认快照记录的值，不跟随设置变化。
+    var batchSize: Int { snapshot?.batchSize ?? TaskPolicy.configuredBatchSize }
+    /// 是否还有可撤销的一步；最后一张决策后、结算执行前仍允许回退。
+    var canUndo: Bool {
+        isActive && !(snapshot?.decisionOrder.isEmpty ?? true)
+    }
 
     var isFinished: Bool {
         isActive && totalCount > 0 && processedCount >= totalCount
@@ -90,7 +115,12 @@ final class CleaningTaskStore {
 
     /// 开始新任务；返回是否成功（空相簿不会创建任务）。
     @discardableResult
-    func start(albumLocalID: String?, albumTitle: String, items: [PhotoItem]) -> Bool {
+    func start(
+        albumLocalID: String?,
+        albumTitle: String,
+        items: [PhotoItem],
+        batchSize: Int
+    ) -> Bool {
         guard !items.isEmpty else { return false }
 
         var kinds: [String: String] = [:]
@@ -105,7 +135,9 @@ final class CleaningTaskStore {
             assetIDs: items.map(\.id),
             kinds: kinds,
             decisions: [:],
-            startedAt: Date()
+            startedAt: Date(),
+            batchSize: batchSize,
+            decisionOrder: []
         )
         self.items = items
         persist()
@@ -118,8 +150,24 @@ final class CleaningTaskStore {
               snapshot.assetIDs.contains(id),
               snapshot.decisions[id] == nil else { return }
         snapshot.decisions[id] = decision
+        snapshot.decisionOrder.append(id)
         self.snapshot = snapshot
         persist()
+    }
+
+    /// 撤销最近一条决策：退回舞台并恢复计数。
+    /// 返回被撤回的照片 id 与去向；没有可撤销项时返回 nil。
+    @discardableResult
+    func undoLastDecision() -> (id: String, decision: TaskDecision)? {
+        guard var snapshot,
+              let id = snapshot.decisionOrder.last,
+              let decision = snapshot.decisions[id] else { return nil }
+
+        snapshot.decisionOrder.removeLast()
+        snapshot.decisions.removeValue(forKey: id)
+        self.snapshot = snapshot
+        persist()
+        return (id, decision)
     }
 
     /// 启动时按快照顺序还原照片；系统里已不存在的资产会从任务中剔除。
@@ -134,10 +182,12 @@ final class CleaningTaskStore {
             snapshot.assetIDs = keptIDs
             snapshot.kinds = snapshot.kinds.filter { existingIDs.contains($0.key) }
             snapshot.decisions = snapshot.decisions.filter { existingIDs.contains($0.key) }
+            snapshot.decisionOrder = snapshot.decisionOrder.filter { existingIDs.contains($0) }
             self.snapshot = snapshot
         }
 
-        items = restoredItems
+        // 恢复也以快照记录的批次上限为准：中途把设置调大，不会给本批扩容。
+        items = Array(restoredItems.prefix(snapshot.batchSize))
 
         if items.isEmpty {
             reset()

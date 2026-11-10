@@ -16,6 +16,11 @@ final class ThumbnailProvider {
 
     /// 请求单张缩略图；允许网络访问以支持 iCloud 资产。
     func image(for localID: String, targetSize: CGSize) async -> UIImage? {
+        #if DEBUG
+        if let synthetic = Self.syntheticImage(for: localID, targetSize: targetSize) {
+            return synthetic
+        }
+        #endif
         let key = Self.cacheKey(localID: localID, targetSize: targetSize)
         if let cached = imageCache.object(forKey: key) { return cached }
         guard let asset = Self.asset(for: localID) else { return nil }
@@ -100,6 +105,54 @@ final class ThumbnailProvider {
     private func normalized(_ size: CGSize) -> CGSize {
         CGSize(width: max(size.width, 1), height: max(size.height, 1))
     }
+
+    #if DEBUG
+    /// 模拟器回归用：为 `ui-test-photo-NN` 生成带序号与横竖标记的缩略图，
+    /// 不依赖相簿权限，方便逐帧确认前后顺序。
+    private static func syntheticImage(for localID: String, targetSize: CGSize) -> UIImage? {
+        guard localID.hasPrefix("ui-test-photo-"),
+              let index = Int(localID.suffix(2)), index > 0 else { return nil }
+        let width = max(1, targetSize.width)
+        let height = max(1, targetSize.height)
+        let size = CGSize(width: width, height: height)
+        let color = UIColor(
+            hue: CGFloat(index % 10) / 10,
+            saturation: 0.55,
+            brightness: 0.82,
+            alpha: 1
+        )
+        return UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            let number = "\(index)" as NSString
+            let numberFont = UIFont.monospacedDigitSystemFont(
+                ofSize: min(width, height) * 0.46,
+                weight: .bold
+            )
+            let numberAttributes: [NSAttributedString.Key: Any] = [
+                .font: numberFont,
+                .foregroundColor: UIColor.white
+            ]
+            let numberSize = number.size(withAttributes: numberAttributes)
+            number.draw(
+                at: CGPoint(
+                    x: (width - numberSize.width) / 2,
+                    y: (height - numberSize.height) / 2
+                ),
+                withAttributes: numberAttributes
+            )
+            let tag = (index % 2 == 1 ? "L" : "P") as NSString
+            let tagAttributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: min(width, height) * 0.1, weight: .semibold),
+                .foregroundColor: UIColor.white
+            ]
+            tag.draw(
+                at: CGPoint(x: width * 0.04, y: height * 0.04),
+                withAttributes: tagAttributes
+            )
+        }
+    }
+    #endif
 
     private static func asset(for localID: String) -> PHAsset? {
         PHAsset.fetchAssets(withLocalIdentifiers: [localID], options: nil).firstObject

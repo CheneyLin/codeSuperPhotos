@@ -122,7 +122,6 @@ struct VIPView: View {
         case .vaultUnlimitedCapacity: "60 件 · 2GB"
         case .statsAdvanced: "今日 · 本周 · 累计"
         case .extraMachines: "壁炉 · 碎纸机"
-        case .batchLimit100: "单批 50 张"
         case .dialSkins: "基础外观"
         }
     }
@@ -133,7 +132,6 @@ struct VIPView: View {
         case .vaultUnlimitedCapacity: "不限件数与空间"
         case .statsAdvanced: "增加本月与方式偏好"
         case .extraMachines: "更多玩法（二期）"
-        case .batchLimit100: "单批 100 张"
         case .dialSkins: "全部皮肤与音效（二期）"
         }
     }

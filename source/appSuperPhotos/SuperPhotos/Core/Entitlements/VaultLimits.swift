@@ -4,14 +4,8 @@ import Foundation
 enum VaultLimits {
     static let freeItemLimit = 60
     static let freeByteLimit: Int64 = 2 * 1024 * 1024 * 1024
-    static let freeBatchLimit = 50
-    static let vipBatchLimit = 100
     /// 入库前的磁盘安全余量（写副本还需要临时空间）。
     static let diskSafetyMargin: Int64 = 200 * 1024 * 1024
-
-    static func batchLimit(for tier: EntitlementTier) -> Int {
-        tier == .vip ? vipBatchLimit : freeBatchLimit
-    }
 
     static func mediaGate(for kind: MediaKind, tier: EntitlementTier) -> GateResult {
         guard tier == .free, !kind.isStillImage else { return .allowed }

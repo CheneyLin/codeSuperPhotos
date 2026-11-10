@@ -15,15 +15,17 @@ enum StageStackPolicy {
     static let paperSide: CGFloat = 10
     static let paperTop: CGFloat = 10
     static let paperBottom: CGFloat = 26
-    /// 照片内容归一后的目标比例（width / height）：横图 4:3，竖图 3:4。
-    static let landscapeContentAspect: CGFloat = 4.0 / 3.0
-    static let portraitContentAspect: CGFloat = 3.0 / 4.0
+    /// 等面积基准：S 为“基准正方形”的边长，卡片内容面积恒为 S²。
+    /// 4:3 取 长边 S·2/√3、短边 S·√3/2；3:4 两者互换，
+    /// 因此 w_land = h_port、h_land = w_port，横竖视觉分量一致。
+    static let stackBaseRatio: CGFloat = 0.72
+    static let minStackBaseSide: CGFloat = 88
+    static let equalAreaLongRatio: CGFloat = 2 / CGFloat(3).squareRoot()
+    static let equalAreaShortRatio: CGFloat = CGFloat(3).squareRoot() / 2
+    /// 正方形按横图处理（width >= height），超长图按方向归一后居中裁切。
+    static let maxDepthReveal: CGFloat = 30
     /// 每层向下露出的底边高度（含前排 0）。
-    /// 需要覆盖旋转带来的单侧抬升：172pt 宽的卡片旋转 15° 时底角约抬升 22pt，
-    /// 因此往后每一层都比前排底边多露出一点，避免被前排完全盖住。
     static let depthReveal: [CGFloat] = [0, 22, 26, 30]
-    /// 卡片统一宽度占舞台宽度的比例，为 ±15° 旋转后的横向外扩留余量。
-    static let stackWidthRatio: CGFloat = 0.78
     /// 舞台高度的可用比例（留出进度条与底部信息）。
     static let stackHeightRatio: CGFloat = 0.9
     /// 下滑提交阈值；不足则弹簧回弹。
@@ -34,11 +36,9 @@ enum StageStackPolicy {
     static let sideCommitDistance: CGFloat = 64
     static let sideFlickPrediction: CGFloat = 120
 
-    /// 素材按横竖归一到 4:3 / 3:4，正方形与极端长图也落到这两档。
-    static func contentAspect(for item: PhotoItem) -> CGFloat {
+    /// 横图（含正方形）走 4:3 盒，竖图走 3:4 盒；两者面积相同。
+    static func isLandscape(_ item: PhotoItem) -> Bool {
         item.pixelSize.width >= item.pixelSize.height
-            ? landscapeContentAspect
-            : portraitContentAspect
     }
 }
 
@@ -57,6 +57,10 @@ struct PhotoStageView: View {
     let discardRequest: Int
     /// 来自 UI 测试的程序化轻点请求，每次自增 1 触发一次。
     let tapRequest: Int
+    /// 来自 UI 测试的程序化左右滑请求，每次自增 1 触发一次。
+    /// 与手势走同一条 `beginFlight` 路径，用于回归飞出顺序与尺寸。
+    var vaultRequest: Int = 0
+    var favoriteRequest: Int = 0
     /// 左右滑飞出距离：约等于舞台半宽 + 侧栏宽 + 间距。
     let sideDropOffset: CGFloat
 
@@ -149,24 +153,44 @@ struct PhotoStageView: View {
         stackEntries.map(\.id).joined(separator: "|")
     }
 
+    /// 整叠是否还在「替飞出卡占位」。
+    ///
+    /// - 轻点换牌 / 上滑 / 下滑：飞出卡在动画结束前仍留在 `items` 里，
+    ///   列表 depth 0 是它本人、真正要顶上来的是 depth 1，所以渲染时整叠前移一层。
+    /// - 左右滑：飞出卡在动画第一帧就已由外部从 `items` 移除，
+    ///   depth 0 已经是对的下一张；此时绝不能再前移，
+    ///   否则第二张被压到后排、第三张顶到前排（表现为先看到第三张）。
+    ///
+    /// 所有依赖 `isShifting` 的位置 / 深度 / 缩放 / zIndex / 尺寸偏移都用它，
+    /// 不要直接再用 `isShifting ? 1 : 0`。
+    private var isHoldingFrontPosition: Bool {
+        guard isShifting, let outgoing else { return false }
+        return items.contains(where: { $0.id == outgoing.item.id })
+    }
+
     var body: some View {
         GeometryReader { proxy in
-            let cardWidth = stackCardWidth(in: proxy.size)
-            let frontCardSize = currentItem.map { cardSize(for: $0, width: cardWidth) }
-                ?? fallbackCardSize(width: cardWidth)
+            let baseSide = stackBaseSide(in: proxy.size)
+            let frontCardSize = currentItem.map { cardSize(for: $0, base: baseSide) }
+                ?? fallbackCardSize(base: baseSide)
+            // 整叠锚点：以“最高竖卡 + 最深露出”的外接框中心为准。
+            // 换牌只改各卡尺寸，不改这个基准，前后排都不会上下跳。
+            let referenceHeight = referenceCardHeight(base: baseSide)
+            let baseline = stackBaseline(referenceHeight: referenceHeight)
 
             ZStack {
                 if currentItem == nil {
                     emptyStage
                 } else {
-                    stack(cardWidth: cardWidth, frontHeight: frontCardSize.height)
+                    stack(baseSide: baseSide, baseline: baseline)
                 }
 
                 if let outgoing {
+                    let outgoingSize = cardSize(for: outgoing.item, base: baseSide)
                     PolaroidCardView(
                         item: outgoing.item,
                         thumbnails: thumbnails,
-                        size: cardSize(for: outgoing.item, width: cardWidth),
+                        size: outgoingSize,
                         cachedImage: outgoing.image
                     )
                     // 身份跟随 asset：连续飞出多张时不复用上一张的视图状态。
@@ -174,7 +198,8 @@ struct PhotoStageView: View {
                     .scaleEffect(outgoingScale)
                     .offset(
                         x: outgoingOffset.width,
-                        y: outgoingOffset.height
+                        // 起飞点必须与固定底边的前排卡重合，否则换牌第一帧会跳一下。
+                        y: baseline - outgoingSize.height / 2 + outgoingOffset.height
                     )
                     .opacity(outgoingOpacity)
                     // 必须在整叠之上：换牌时它要先盖住前排，再向上飞走，
@@ -207,7 +232,7 @@ struct PhotoStageView: View {
             .overlay(alignment: .center) {
                 if let days = snoozePreviewDays, !isShifting {
                     snoozeBadge(days: days)
-                        .offset(y: -frontCardSize.height / 2 - 26)
+                        .offset(y: baseline - frontCardSize.height - 26)
                         .allowsHitTesting(false)
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                         .zIndex(30)
@@ -232,10 +257,18 @@ struct PhotoStageView: View {
                 guard isInteractionEnabled, !isShifting else { return }
                 openFullscreen()
             }
+            .onChange(of: vaultRequest) { _, _ in
+                guard isInteractionEnabled, !isShifting else { return }
+                beginFlight(to: .vault, container: proxy.size)
+            }
+            .onChange(of: favoriteRequest) { _, _ in
+                guard isInteractionEnabled, !isShifting else { return }
+                beginFlight(to: .favorite, container: proxy.size)
+            }
             .task(id: prefetchKey) {
                 thumbnails.startPrefetching(
                     ids: stackEntries.map(\.id),
-                    targetSize: prefetchTargetSize(cardWidth: cardWidth)
+                    targetSize: prefetchTargetSize(baseSide: baseSide)
                 )
             }
             .onDisappear {
@@ -250,48 +283,85 @@ struct PhotoStageView: View {
         StageStackPolicy.paperTop + StageStackPolicy.paperBottom
     }
 
-    /// 堆叠卡片统一宽度：按前排素材的横竖比例适配可用区域。
-    private func stackCardWidth(in container: CGSize) -> CGFloat {
-        let aspect = currentItem.map(StageStackPolicy.contentAspect(for:)) ?? StageStackPolicy.landscapeContentAspect
-        let maxWidth = max(96, container.width * StageStackPolicy.stackWidthRatio)
-        // 预留旋转与底边露出的余量后再换算成内容宽度。
-        let maxContentHeight = max(120, container.height * StageStackPolicy.stackHeightRatio - paperMarginY)
-        return min(maxWidth, maxContentHeight * aspect)
+    /// 等面积基准边长 S：只取决于舞台容器，与当前这张的方向无关。
+    ///
+    /// - 宽度上限：S × 0.72，保证 4:3 长边（S×2/√3 ≈ 1.155S）旋转 ±15° 后
+    ///   仍落在中栏宽度内；
+    /// - 高度上限：竖卡内容高 = S×2/√3，加上相纸下巴与最深露出后不超过舞台 90%；
+    /// - 下限：S = 88（4:3 卡宽约 102pt），窄屏中栏最小 120pt 时也不会溢出。
+    private func stackBaseSide(in container: CGSize) -> CGFloat {
+        let widthLimit = max(0, container.width * StageStackPolicy.stackBaseRatio)
+        let maxContentHeight = max(
+            0,
+            container.height * StageStackPolicy.stackHeightRatio
+                - paperMarginY
+                - StageStackPolicy.maxDepthReveal
+        )
+        let heightLimit = maxContentHeight / StageStackPolicy.equalAreaLongRatio
+        let natural = min(widthLimit, heightLimit)
+        guard widthLimit > 0, natural > 0 else {
+            return StageStackPolicy.minStackBaseSide
+        }
+        // 下限只用于“舞台过矮”的兜底，且永远不允许超过宽度上限。
+        return max(1, min(max(natural, StageStackPolicy.minStackBaseSide), widthLimit))
     }
 
-    /// 同一叠相纸宽度一致，高度随素材横竖各自归一，横图矮、竖图高。
-    private func cardSize(for item: PhotoItem, width: CGFloat) -> CGSize {
-        let contentHeight = max(1, width / StageStackPolicy.contentAspect(for: item))
-        return CGSize(width: width, height: contentHeight + paperMarginY)
-    }
-
-    /// 空舞台（没有素材比例可参考）时的兜底尺寸。
-    private func fallbackCardSize(width: CGFloat) -> CGSize {
-        CGSize(
-            width: width,
-            height: max(1, width / StageStackPolicy.landscapeContentAspect) + paperMarginY
+    /// 等面积内容框：横图 长×短（4:3），竖图 短×长（3:4），边长正好互换。
+    private func contentSize(for item: PhotoItem, base: CGFloat) -> CGSize {
+        if StageStackPolicy.isLandscape(item) {
+            return CGSize(
+                width: base * StageStackPolicy.equalAreaLongRatio,
+                height: base * StageStackPolicy.equalAreaShortRatio
+            )
+        }
+        return CGSize(
+            width: base * StageStackPolicy.equalAreaShortRatio,
+            height: base * StageStackPolicy.equalAreaLongRatio
         )
     }
 
+    /// 卡片尺寸 = 内容框 + 相纸边距；高度随横竖变化，宽度也随横竖互换。
+    private func cardSize(for item: PhotoItem, base: CGFloat) -> CGSize {
+        let content = contentSize(for: item, base: base)
+        return CGSize(width: content.width, height: content.height + paperMarginY)
+    }
+
+    /// 空舞台（没有素材比例可参考）时按横图盒兜底。
+    private func fallbackCardSize(base: CGFloat) -> CGSize {
+        CGSize(
+            width: base * StageStackPolicy.equalAreaLongRatio,
+            height: base * StageStackPolicy.equalAreaShortRatio + paperMarginY
+        )
+    }
+
+    /// 竖卡最高，用它作为整叠的参考高度，保证任何横竖组合下锚点不变。
+    private func referenceCardHeight(base: CGFloat) -> CGFloat {
+        base * StageStackPolicy.equalAreaLongRatio + paperMarginY
+    }
+
+    /// 锚点取整叠最大外接框（最高竖卡 + 最深露出）的中心：
+    /// 前排底边相对舞台中心的偏移固定为 (参考高 − 最深露出)/2。
+    private func stackBaseline(referenceHeight: CGFloat) -> CGFloat {
+        (referenceHeight - StageStackPolicy.maxDepthReveal) / 2
+    }
+
     /// 预热按这一叠里最大的内容区域请求，横竖混合时也不会糊。
-    private func prefetchTargetSize(cardWidth: CGFloat) -> CGSize {
-        let contentWidth = max(1, cardWidth - StageStackPolicy.paperSide * 2)
-        let maxCardHeight = stackEntries
-            .map { cardSize(for: $0.item, width: cardWidth).height }
-            .max() ?? cardWidth
-        let contentHeight = max(1, maxCardHeight - paperMarginY)
+    private func prefetchTargetSize(baseSide: CGFloat) -> CGSize {
+        let sizes = stackEntries.map { contentSize(for: $0.item, base: baseSide) }
+        let maxWidth = max(1, sizes.map(\.width).max() ?? baseSide)
+        let maxHeight = max(1, sizes.map(\.height).max() ?? baseSide)
         return CGSize(
-            width: contentWidth * UIScreen.main.scale,
-            height: contentHeight * UIScreen.main.scale
+            width: maxWidth * UIScreen.main.scale,
+            height: maxHeight * UIScreen.main.scale
         )
     }
 
     // MARK: - 堆叠
 
-    private func stack(cardWidth: CGFloat, frontHeight: CGFloat) -> some View {
+    private func stack(baseSide: CGFloat, baseline: CGFloat) -> some View {
         // 升位瞬间底板要跟着换成“即将成为前排”的那一张的尺寸，
         // 否则横竖图混排时会露出旧尺寸多出来的相纸边。
-        let backingSize = backingCardSize(cardWidth: cardWidth, frontHeight: frontHeight)
+        let backingSize = backingCardSize(baseSide: baseSide)
 
         return ZStack {
             // 不透明相纸底板：恒垫在前排卡正下方，跟随拖拽的位移与旋转。
@@ -301,17 +371,19 @@ struct PhotoStageView: View {
                 .fill(Theme.Polaroid.paper)
                 .frame(width: backingSize.width, height: backingSize.height)
                 .rotationEffect(.degrees(Double(dragOffset.width) * 0.05))
-                .offset(x: dragOffset.width, y: dragOffset.height)
+                // 底边钉在固定基准线上：底板高度变化时只向上长，不带动整叠。
+                .offset(x: dragOffset.width, y: baseline - backingSize.height / 2 + dragOffset.height)
                 .shadow(color: Theme.Polaroid.shadow, radius: 10, x: 0, y: 6)
                 .zIndex(99.5)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
 
             ForEach(stackEntries) { entry in
-                let effectiveDepth = max(0, entry.depth - (isShifting ? 1 : 0))
+                // 只有飞出卡仍占着 depth 0 时才整体前移一层；左右滑已提前移除，不偏移。
+                let effectiveDepth = max(0, entry.depth - (isHoldingFrontPosition ? 1 : 0))
                 let isFront = entry.depth == 0
-                let entrySize = cardSize(for: entry.item, width: cardWidth)
-                let pose = pose(for: effectiveDepth, entryHeight: entrySize.height, frontHeight: frontHeight)
+                let entrySize = cardSize(for: entry.item, base: baseSide)
+                let pose = pose(for: effectiveDepth, entryHeight: entrySize.height, baseline: baseline)
 
                 PolaroidCardView(
                     item: entry.item,
@@ -369,19 +441,16 @@ struct PhotoStageView: View {
     /// 换牌（轻点/上滑/下滑）时旧前排仍在列表里，真正要顶上来的是 depth 1；
     /// 左右滑在飞行开始时就已由外部移除，新前排已经是 depth 0。
     private var incomingFrontDepth: Int {
-        guard isShifting, let outgoing,
-              stackEntries.contains(where: { $0.item.id == outgoing.item.id })
-        else { return 0 }
-        return 1
+        isHoldingFrontPosition ? 1 : 0
     }
 
-    private func backingCardSize(cardWidth: CGFloat, frontHeight: CGFloat) -> CGSize {
+    private func backingCardSize(baseSide: CGFloat) -> CGSize {
         let target = stackEntries.first(where: { $0.depth == incomingFrontDepth })?.item
             ?? stackEntries.first?.item
         if let target {
-            return cardSize(for: target, width: cardWidth)
+            return cardSize(for: target, base: baseSide)
         }
-        return CGSize(width: cardWidth, height: frontHeight)
+        return fallbackCardSize(base: baseSide)
     }
 
     /// 无障碍动作拿不到容器的真实尺寸，用卡片尺寸作为近似飞行距离。
@@ -389,11 +458,14 @@ struct PhotoStageView: View {
         CGSize(width: cardSize.width + 24, height: cardSize.height * 1.3)
     }
 
-    /// 以底边为基准对齐：每深一层都在前排下缘再多露出固定高度，
-    /// 这样横图、竖图混叠时后排下缘都不会被前排完全盖住。
-    private func pose(for depth: Int, entryHeight: CGFloat, frontHeight: CGFloat) -> (angle: Double, x: CGFloat, y: CGFloat, scale: CGFloat) {
+    /// 所有卡片共用一条固定底边基准：每深一层在基准线下方多露出常量高度。
+    /// 关键点是不再依赖“当前前排高度”，所以 4:3 ↔ 3:4 换牌时后排完全不动。
+    private func pose(for depth: Int, entryHeight: CGFloat, baseline: CGFloat) -> (angle: Double, x: CGFloat, y: CGFloat, scale: CGFloat) {
         let index = min(depth, StageStackPolicy.visibleDepth - 1)
-        let y = (frontHeight - entryHeight) / 2 + StageStackPolicy.depthReveal[index]
+        let scale = StageStackPolicy.depthScales[index]
+        // 缩放是按卡片中心做的，若仍用原始高度的一半，后层底边会被缩放“吃掉”约 h×(1−scale)/2，
+        // 露出量就不再等于 depthReveal。这里用缩放后的半高定位，保证每层露出严格为 0/22/26/30。
+        let y = baseline + StageStackPolicy.depthReveal[index] - entryHeight * scale / 2
         return (
             StageStackPolicy.depthAngles[index],
             StageStackPolicy.depthShiftX[index],

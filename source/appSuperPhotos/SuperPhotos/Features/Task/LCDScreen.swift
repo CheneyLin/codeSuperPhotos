@@ -1,167 +1,272 @@
 import SwiftUI
 
-/// 液晶屏规格：尺寸、字号、格子数、颜色集中在这里。
-/// 设计稿到位后只改这组常量（以及 `LCDScreen` 里的文字样式），不改调用方。
+/// 液晶屏规格：物料图、玻璃屏在图片里的位置，以及屏内读数的排版常量。
+///
+/// 物料是 720×421 的透明 PNG；屏体尺寸、圆角、挂耳全部在图片里，
+/// 代码不再画边框、圆角或占位角标。
 enum LCDSpec {
-    /// 屏幕总高（含外框与内边距）；中栏可用高度会因此减少这么多。
-    static let height: CGFloat = 68
-    /// 外框粗细：硬边占位边界。
-    static let borderWidth: CGFloat = 1.5
-    /// 屏内四周留白。
-    static let innerPadding: CGFloat = 8
-    /// 行与行之间的间距。
-    static let lineSpacing: CGFloat = 4
-    /// 进度条与文字之间额外加的距离。
-    static let barTopSpacing: CGFloat = 2
+    /// 读数排版基准宽：旧版 1:1 屏宽 162（486px ÷ 3）。
+    /// 屏内字号 / 字距 / 条高都按「实际屏宽 ÷ 162」等比放大。
+    static let baseWidth: CGFloat = 162
+    /// 目标宽：基准的 185%（162 × 1.852 ≈ 300）。
+    /// 最窄验收宽度 393 上左右仍各留 46.5pt，不会被屏幕边缘切到。
+    static let displayWidth: CGFloat = 300
+    /// 物料原始比例（720 × 421）。
+    static let imageAspect: CGFloat = 421.0 / 720.0
+    /// 物料在目标宽下的渲染高度（300 × 0.5847 ≈ 175.4）。
+    static var displayHeight: CGFloat { displayWidth * imageAspect }
 
-    /// 屏内主文字：等宽 + 硬边，替代像素字体。
-    static let textSize: CGFloat = 10.5
-    static let textTracking: CGFloat = 0.4
-    /// 手势提示行数上限。
-    static let tipsLineLimit: Int = 3
-    /// 角标文字。
-    static let tagSize: CGFloat = 7
-    static let tagTracking: CGFloat = 0.6
+    /// 独立一行的占位高度：沿用上一版（243 宽时图高 142 + 8pt 间隙）。
+    /// 本次放大只向上溢出，占位不变，三栏行的上沿与行高都不动。
+    static let rowHeight: CGFloat = 150
+    /// 可见屏面底边距行尾 4pt；透明留白不算，避免把屏体往三栏行里多推 18pt。
+    static let rowBottomGap: CGFloat = 4
 
-    /// 分段式进度条：格数、格间距、格高。
-    static let segmentCount: Int = 24
+    /// 物料上下透明留白的比例（可见区 y 31…377，总高 421）。
+    /// 定位按「可见边框」算、命中区也裁掉留白：放大的屏体可以吃掉挂板区空白，
+    /// 但透明像素既不会压到顶栏挂件，也不会挡住提示条或三栏行的点击。
+    static let visibleTopRatio: CGFloat = 31.0 / 421.0
+    static let visibleBottomRatio: CGFloat = 44.0 / 421.0
+
+    /// 玻璃屏在图片中的归一化矩形（按 486×284 实测：x 48.5…439、y 94.5…210.5）。
+    /// 文字与进度条只落在这个矩形内，压在外框、挂耳或透明留白上都不会出现。
+    static let glassRect = CGRect(x: 0.0998, y: 0.3327, width: 0.8035, height: 0.4085)
+    /// 读数与玻璃边缘的留白，按玻璃宽/高的比例给，随图片缩放自动等比例变化。
+    /// 10% 是实测下限：再小文字会贴到玻璃圆角与边框上。
+    static let glassInsetRatio: CGFloat = 0.10
+
+    /// 屏内主读数：等宽 + 硬边，替代像素字体。
+    static let textSize: CGFloat = 10
+    static let textTracking: CGFloat = 0.2
+    /// 主读数 / 进度条 / 底部提示三行之间的距离。
+    /// 屏宽 300 时玻璃可用高约 57pt，1.5 是容纳三行且不贴边的上限。
+    static let lineSpacing: CGFloat = 1.5
+
+    /// 底部提示行（常驻提示与瞬时反馈共用这一格）：比主读数小一档。
+    static let hintSize: CGFloat = 7
+    static let hintTracking: CGFloat = 0.1
+    /// 处理态没有瞬时反馈时的常驻提示。
+    static let hintText = "轻点暂停 · 下滑待销毁"
+
+    /// 分段式进度条：格数、格间距、格高（同样按屏体缩放）。
+    static let segmentCount: Int = 16
     static let segmentSpacing: CGFloat = 2
-    static let segmentHeight: CGFloat = 7
-
-    /// 占位角标开关：设计稿到位后关掉即可。
-    static let showsPlaceholderTag = true
+    static let segmentHeight: CGFloat = 6
 
     // 颜色
-    static let screenFill = Theme.Surface.sunken
-    static let borderColor = Theme.Shadow.insetBorder
+    /// 屏内文字用主题前景色：浅色模式下压浅蓝屏、深色模式下压暗蓝屏都保持高对比。
     static let textColor = Theme.Text.primary
     static let dimColor = Theme.Text.tertiary
-    static let emptySegmentColor = Theme.Text.tertiary.opacity(0.22)
-    static let fillSegmentColor = Theme.Accent.brass
+    static let emptySegmentColor = Theme.Text.primary.opacity(0.14)
+    static let fillSegmentColor = Theme.Text.primary
     static let dangerColor = Theme.State.danger
 }
 
-/// 液晶屏（占位版）：默认态（桌面）显示手势提示，处理态（舞台）显示进度。
+/// 屏内瞬时反馈。同一时刻只保留一条：后来的直接覆盖前面的，不排队。
+struct LCDNotice: Identifiable, Equatable {
+    enum Tone: Equatable {
+        case info
+        case success
+        /// 只有“加入待销毁”用红色，其余统一用屏内墨色。
+        case danger
+    }
+
+    let id = UUID()
+    let text: String
+    var tone: Tone = .info
+}
+
+/// 液晶屏的可见矩形：扣掉物料上下透明留白，只让屏面本身接收点击。
+private struct VisibleScreenShape: Shape {
+    let topRatio: CGFloat
+    let bottomRatio: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let top = rect.height * topRatio
+        let bottom = rect.height * bottomRatio
+        return Path(
+            CGRect(
+                x: rect.minX,
+                y: rect.minY + top,
+                width: rect.width,
+                height: max(0, rect.height - top - bottom)
+            )
+        )
+    }
+}
+
+/// 液晶屏：图片驱动，按「桌面 / 处理中」与深浅主题切换四张物料。
 ///
-/// 本轮只做占位——可见硬边外框 + 内部留白 + 「LCD · 占位」角标；
-/// 处理态整屏仍是暂停入口，无障碍标签沿用原进度头的文案。
+/// - 桌面态：屏面不渲染进度，也不显示手势提示；只有瞬时反馈时露出一行。
+/// - 处理中：玻璃屏内三行——主读数、分段进度条、底部提示（瞬时反馈优先）。
+///   整屏仍是暂停入口。
 struct LCDScreen: View {
     enum Mode: Equatable {
-        case tips
+        case idle
         case progress(pendingDelete: Int, processed: Int, total: Int)
     }
 
     let mode: Mode
+    /// 最新的操作反馈；2.4s 后由调用方清空。
+    var notice: LCDNotice?
     /// 处理态下整屏可点，作为暂停入口。
     var isPauseEnabled: Bool = false
     var onPause: () -> Void = {}
 
-    /// 默认态手势提示：从桌面按钮下方移到这块屏里。
+    /// 桌面态手势提示：不画在屏上，只留给 VoiceOver。
     static let tipsText = "轻点全屏 · 上滑延后 · 左滑保险箱 · 右滑收藏夹 · 下滑删除"
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
-            if isPauseEnabled, case .progress = mode {
+            if isPauseEnabled, isProgress {
                 Button(action: onPause) {
-                    screen
+                    panel
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("暂停整理")
                 .accessibilityHint("保留当前进度并返回桌面")
                 .accessibilityValue(accessibilitySummary)
             } else {
-                screen
+                panel
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(accessibilitySummary)
             }
         }
     }
 
+    private var isProgress: Bool {
+        if case .progress = mode { return true }
+        return false
+    }
+
+    /// 物料映射：`-on` 两张实测是「屏面点亮、画面退淡」的版本，正好当读数底图。
+    private var assetName: String {
+        switch (isProgress, colorScheme) {
+        case (true, .dark):
+            return "lcdProgressDark"
+        case (true, _):
+            return "lcdProgressLight"
+        case (false, .dark):
+            return "lcdIdleDark"
+        case (false, _):
+            return "lcdIdleLight"
+        }
+    }
+
     // MARK: - 屏体
 
-    private var screen: some View {
-        ZStack {
-            LCDSpec.screenFill
-
-            // 硬边外框：占位边界，后续换设计时整块替换。
-            Rectangle()
-                .strokeBorder(LCDSpec.borderColor, lineWidth: LCDSpec.borderWidth)
-
-            VStack(alignment: .leading, spacing: LCDSpec.lineSpacing) {
-                if LCDSpec.showsPlaceholderTag {
-                    HStack(spacing: 0) {
-                        Text("LCD")
-                        Spacer(minLength: 4)
-                        Text("占位 · 待设计稿")
+    private var panel: some View {
+        Image(assetName)
+            .resizable()
+            // 等比完整显示：不拉伸、不裁切，外框与挂耳都是图片的一部分。
+            .aspectRatio(LCDSpec.imageAspect, contentMode: .fit)
+            // 命中区只覆盖可见屏面：上下透明留白不接收点击，放大的屏体不会
+            // 借透明像素挡住顶栏、提示条或三栏行。
+            .contentShape(VisibleScreenShape(
+                topRatio: LCDSpec.visibleTopRatio,
+                bottomRatio: LCDSpec.visibleBottomRatio
+            ))
+            .overlay {
+                if isProgress || notice != nil {
+                    GeometryReader { proxy in
+                        let glass = glassRect(in: proxy.size)
+                        // 读数跟随屏体等比缩放：屏越大字越大，不会在小图上溢出、在大图上留白。
+                        let scale = proxy.size.width / LCDSpec.baseWidth
+                        readout(scale: scale)
+                            .frame(
+                                width: glass.width * (1 - 2 * LCDSpec.glassInsetRatio),
+                                height: glass.height * (1 - 2 * LCDSpec.glassInsetRatio)
+                            )
+                            .position(x: glass.midX, y: glass.midY)
                     }
-                    .font(.system(size: LCDSpec.tagSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(LCDSpec.dimColor)
-                    .tracking(LCDSpec.tagTracking)
-                    .lineLimit(1)
-                    .accessibilityHidden(true)
-                }
-
-                contentRow
-
-                if case .progress = mode {
-                    pixelBar
-                        .padding(.top, LCDSpec.barTopSpacing)
-                } else {
-                    Spacer(minLength: 0)
                 }
             }
-            .padding(LCDSpec.innerPadding)
-        }
-        // 屏宽只由所在栏决定：内容（提示文案、进度数字）再长也不能把屏撑宽，
-        // 否则中栏会被 LCD 的 ideal 宽度顶开，三栏落点一起漂。
-        .frame(maxWidth: .infinity)
-        .frame(height: LCDSpec.height)
-        // 像素风：直角硬边，不做圆角与描边渐变。
-        .clipShape(Rectangle())
-        .contentShape(Rectangle())
     }
+
+    /// 图片实际渲染尺寸下，玻璃屏对应的矩形。
+    private func glassRect(in size: CGSize) -> CGRect {
+        CGRect(
+            x: size.width * LCDSpec.glassRect.minX,
+            y: size.height * LCDSpec.glassRect.minY,
+            width: size.width * LCDSpec.glassRect.width,
+            height: size.height * LCDSpec.glassRect.height
+        )
+    }
+
+    // MARK: - 屏内读数
 
     @ViewBuilder
-    private var contentRow: some View {
+    private func readout(scale: CGFloat) -> some View {
         switch mode {
-        case .tips:
-            Text(Self.tipsText)
-                .font(.system(size: LCDSpec.textSize, weight: .medium, design: .monospaced))
-                .foregroundStyle(LCDSpec.textColor)
-                .tracking(LCDSpec.textTracking)
-                .lineLimit(LCDSpec.tipsLineLimit)
-                .minimumScaleFactor(0.72)
-                .fixedSize(horizontal: false, vertical: true)
-
-        case let .progress(pendingDelete, processed, total):
-            HStack(spacing: 6) {
-                Text("待删除 \(pendingDelete) 张")
-                    .foregroundStyle(pendingDelete > 0 ? LCDSpec.dangerColor : LCDSpec.dimColor)
-
-                Spacer(minLength: 4)
-
-                Text("\(processed)/\(total)")
-                    .foregroundStyle(LCDSpec.textColor)
+        case .idle:
+            // 桌面态：手势提示不显示，这里只有瞬时反馈，居中一行。
+            if notice != nil {
+                statusLine(scale: scale, isHint: false, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
-            .font(.system(size: LCDSpec.textSize, weight: .medium, design: .monospaced).monospacedDigit())
-            .tracking(LCDSpec.textTracking)
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
+        case let .progress(pendingDelete, processed, total):
+            VStack(alignment: .leading, spacing: LCDSpec.lineSpacing * scale) {
+                HStack(spacing: 4 * scale) {
+                    Text("待删除 \(pendingDelete) 张")
+                        .foregroundStyle(pendingDelete > 0 ? LCDSpec.dangerColor : LCDSpec.dimColor)
+
+                    Spacer(minLength: 2 * scale)
+
+                    Text("\(processed)/\(total)")
+                        .foregroundStyle(LCDSpec.textColor)
+                }
+                .font(.system(size: LCDSpec.textSize * scale, weight: .semibold, design: .monospaced).monospacedDigit())
+                .tracking(LCDSpec.textTracking * scale)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+                pixelBar(scale: scale)
+
+                // 瞬时反馈占用底部这一格；没有反馈时回落为常驻提示。
+                statusLine(scale: scale, isHint: notice == nil)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
-    // MARK: - 像素进度条
+    /// 底部提示行：常驻手势提示与瞬时反馈共用同一格，互不顶位。
+    private func statusLine(
+        scale: CGFloat,
+        isHint: Bool,
+        alignment: Alignment = .leading
+    ) -> some View {
+        let text = isHint ? LCDSpec.hintText : (notice?.text ?? "")
+        return Text(text)
+            .font(.system(size: LCDSpec.hintSize * scale, weight: .semibold, design: .monospaced))
+            .tracking(LCDSpec.hintTracking * scale)
+            .foregroundStyle(isHint ? LCDSpec.dimColor : noticeColor)
+            .lineLimit(1)
+            // 先整体收缩，缩到 65% 还放不下才截断加省略号。
+            .minimumScaleFactor(0.65)
+            .truncationMode(.tail)
+            .multilineTextAlignment(alignment == .center ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .contentTransition(.opacity)
+            .animation(.easeOut(duration: 0.18), value: text)
+    }
 
-    private var pixelBar: some View {
-        HStack(spacing: LCDSpec.segmentSpacing) {
+    private var noticeColor: Color {
+        notice?.tone == .danger ? LCDSpec.dangerColor : LCDSpec.textColor
+    }
+
+    private func pixelBar(scale: CGFloat) -> some View {
+        let height = LCDSpec.segmentHeight * scale
+        return HStack(spacing: LCDSpec.segmentSpacing * scale) {
             ForEach(0..<LCDSpec.segmentCount, id: \.self) { index in
                 Rectangle()
                     .fill(index < filledSegments ? LCDSpec.fillSegmentColor : LCDSpec.emptySegmentColor)
                     .frame(maxWidth: .infinity)
-                    .frame(height: LCDSpec.segmentHeight)
+                    .frame(height: height)
             }
         }
-        .frame(height: LCDSpec.segmentHeight)
+        .frame(height: height)
         .animation(.easeOut(duration: 0.18), value: filledSegments)
         .accessibilityHidden(true)
     }
@@ -174,19 +279,39 @@ struct LCDScreen: View {
     }
 
     private var accessibilitySummary: String {
+        let base: String
         switch mode {
-        case .tips:
-            return Self.tipsText
+        case .idle:
+            base = Self.tipsText
         case let .progress(pendingDelete, processed, total):
-            return "待删除 \(pendingDelete) 张，已处理 \(processed) 张，共 \(total) 张"
+            base = "待删除 \(pendingDelete) 张，已处理 \(processed) 张，共 \(total) 张"
         }
+        guard let notice else { return base }
+        return "\(base)。\(notice.text)"
     }
 }
 
-#Preview("桌面 · 提示") {
-    LCDScreen(mode: .tips)
+private extension LCDScreen {
+    /// 预览与调用方共用的尺寸：宽度由调用方给，高度按物料比例算。
+    func sized(width: CGFloat) -> some View {
+        frame(width: width, height: width * LCDSpec.imageAspect)
+    }
+}
+
+#Preview("桌面 · 浅色") {
+    LCDScreen(mode: .idle)
+        .sized(width: LCDSpec.displayWidth)
         .padding()
         .background(Theme.Surface.base)
+        .preferredColorScheme(.light)
+}
+
+#Preview("桌面 · 深色") {
+    LCDScreen(mode: .idle)
+        .sized(width: LCDSpec.displayWidth)
+        .padding()
+        .background(Theme.Surface.base)
+        .preferredColorScheme(.dark)
 }
 
 #Preview("舞台 · 进度") {
@@ -194,6 +319,18 @@ struct LCDScreen: View {
         mode: .progress(pendingDelete: 3, processed: 37, total: 100),
         isPauseEnabled: true
     )
+    .sized(width: LCDSpec.displayWidth)
+    .padding()
+    .background(Theme.Surface.base)
+}
+
+#Preview("舞台 · 瞬时反馈") {
+    LCDScreen(
+        mode: .progress(pendingDelete: 3, processed: 37, total: 100),
+        notice: LCDNotice(text: "已加入「旅行」", tone: .success),
+        isPauseEnabled: true
+    )
+    .sized(width: LCDSpec.displayWidth)
     .padding()
     .background(Theme.Surface.base)
 }

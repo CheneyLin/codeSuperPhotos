@@ -1,9 +1,25 @@
+import CryptoKit
 import Foundation
 import ImageIO
 import Photos
 import SwiftData
 import SwiftUI
 import UIKit
+
+/// 读取保险箱内容后交给界面使用的本地文件。
+/// 标准档直接指向原文件；强加密档指向解密出的临时文件，用完必须 `cleanup()`。
+struct VaultPreparedMedia {
+    let imageURL: URL
+    let videoURL: URL?
+    let temporaryDirectory: URL?
+
+    var isTemporary: Bool { temporaryDirectory != nil }
+
+    func cleanup() {
+        guard let temporaryDirectory else { return }
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+}
 
 /// 保险箱的唯一状态入口：清单、文件、解锁会话、入库/取出编排都在这里。
 @MainActor
@@ -43,15 +59,25 @@ final class VaultStore {
     /// 批量入库进度（0...1）；nil 表示未在执行。
     private(set) var importProgress: Double?
 
-    @ObservationIgnored private var thumbnailCache: [UUID: UIImage] = [:]
+    @ObservationIgnored private let thumbnailCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        // 只保留一屏附近够用的缩略图；按字节成本自动淘汰，避免上千项时内存失控。
+        cache.countLimit = 300
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
     @ObservationIgnored private var autoLockTask: Task<Void, Never>?
 
     init(container: ModelContainer? = nil) {
         let resolvedContainer = container ?? AppModelContainer.shared
         self.container = resolvedContainer
         self.context = resolvedContainer.mainContext
+        Self.purgePreviewDirectory()
         reload()
     }
+
+    /// 当前内容保护档位；只影响之后写入的文件。
+    var encryptionMode: VaultEncryptionMode { VaultEncryptionMode.current }
 
     // MARK: - 清单
 
@@ -76,17 +102,69 @@ final class VaultStore {
         VaultLockPolicy.status()
     }
 
-    func thumbnail(for record: VaultRecord, maxPixel: CGFloat = 240) -> UIImage? {
-        if let cached = thumbnailCache[record.id] { return cached }
-        let url = Paths.vaultFileURL(relativePath: record.relativePath)
-        guard let image = Self.makeThumbnail(url: url, maxPixel: maxPixel) else { return nil }
-        thumbnailCache[record.id] = image
+    /// 按当前存储模式取缩略图：标准档直接解码，强加密档先解密到临时文件再解码。
+    func thumbnailAsync(for record: VaultRecord, maxPixel: CGFloat = 240) async -> UIImage? {
+        let key = record.id.uuidString as NSString
+        if let cached = thumbnailCache.object(forKey: key) { return cached }
+
+        guard let media = try? await prepareMedia(for: record) else { return nil }
+        defer { if media.isTemporary { media.cleanup() } }
+
+        guard let image = await Task.detached(priority: .utility, operation: {
+            Self.makeThumbnail(url: media.imageURL, maxPixel: maxPixel)
+        }).value else { return nil }
+
+        let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
+        thumbnailCache.setObject(image, forKey: key, cost: cost)
         return image
     }
 
-    func fullImage(for record: VaultRecord) -> UIImage? {
-        let url = Paths.vaultFileURL(relativePath: record.relativePath)
-        return Self.makeThumbnail(url: url, maxPixel: 2048)
+    /// 统一读取路径：网格与全屏都拿到可直接交给 ImageIO / AVPlayer 的本地 URL。
+    /// 强加密档返回解密出的临时文件，调用方用完必须 `cleanup()`。
+    func prepareMedia(for record: VaultRecord) async throws -> VaultPreparedMedia {
+        let primaryURL = Paths.vaultFileURL(relativePath: record.relativePath)
+        guard FileManager.default.fileExists(atPath: primaryURL.path) else {
+            throw VaultCryptoError.fileMissing
+        }
+        let pairedURL = record.pairedVideoPath.map { Paths.vaultFileURL(relativePath: $0) }
+
+        guard encryptionMode == .strong else {
+            return VaultPreparedMedia(
+                imageURL: primaryURL,
+                videoURL: pairedURL,
+                temporaryDirectory: nil
+            )
+        }
+
+        let key: SymmetricKey
+        do {
+            key = try VaultCrypto.contentKey(createIfNeeded: false)
+        } catch {
+            throw VaultCryptoError.keyUnavailable
+        }
+
+        let directory = Self.previewDirectory().appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let decrypted = try await Task.detached(priority: .userInitiated) { () -> (URL, URL?) in
+                let imageURL = directory.appendingPathComponent(primaryURL.lastPathComponent)
+                try VaultCrypto.decryptFile(at: primaryURL, to: imageURL, key: key)
+                let videoURL = try pairedURL.map { source -> URL in
+                    let destination = directory.appendingPathComponent(source.lastPathComponent)
+                    try VaultCrypto.decryptFile(at: source, to: destination, key: key)
+                    return destination
+                }
+                return (imageURL, videoURL)
+            }.value
+            return VaultPreparedMedia(
+                imageURL: decrypted.0,
+                videoURL: decrypted.1,
+                temporaryDirectory: directory
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
     }
 
     // MARK: - 解锁
@@ -265,6 +343,29 @@ final class VaultStore {
                 continue
             }
 
+            // 强加密档：文件落盘后立刻原地加密；失败则整条回滚，不留下半加密文件。
+            if encryptionMode == .strong {
+                do {
+                    let key = try VaultCrypto.contentKey()
+                    let primaryURL = Paths.vaultFileURL(relativePath: copied.relativePath)
+                    let pairedURL = copied.pairedVideoPath.map { Paths.vaultFileURL(relativePath: $0) }
+                    try await Task.detached(priority: .userInitiated) {
+                        try VaultCrypto.encryptFile(at: primaryURL, key: key)
+                        if let pairedURL {
+                            try VaultCrypto.encryptFile(at: pairedURL, key: key)
+                        }
+                    }.value
+                } catch {
+                    Paths.removeFile(atRelativePath: copied.relativePath)
+                    if let paired = copied.pairedVideoPath {
+                        Paths.removeFile(atRelativePath: paired)
+                    }
+                    staged.messages.append("强加密失败：\(error.localizedDescription)")
+                    staged.failed += 1
+                    continue
+                }
+            }
+
             let record = VaultRecord(
                 originLocalID: assetID,
                 fileName: copied.fileName,
@@ -345,11 +446,13 @@ final class VaultStore {
         let targets = records.filter { ids.contains($0.id) }
         for record in targets {
             do {
-                try await VaultRestorer.restore(record)
+                let media = try await prepareMedia(for: record)
+                defer { if media.isTemporary { media.cleanup() } }
+                try await VaultRestorer.restore(record, media: media)
                 removeFiles(for: record)
                 context.delete(record)
                 try? context.save()
-                thumbnailCache.removeValue(forKey: record.id)
+                thumbnailCache.removeObject(forKey: record.id.uuidString as NSString)
                 summary.restored += 1
             } catch {
                 record.state = .broken
@@ -360,23 +463,27 @@ final class VaultStore {
         return summary
     }
 
-    func exportURLs(ids: [UUID]) -> [URL] {
-        records
-            .filter { ids.contains($0.id) }
-            .flatMap { record -> [URL] in
-                var urls = [Paths.vaultFileURL(relativePath: record.relativePath)]
-                if let paired = record.pairedVideoPath {
-                    urls.append(Paths.vaultFileURL(relativePath: paired))
-                }
-                return urls
+    /// 导出：强加密档导出解密后的临时副本；返回的目录由调用方在分享结束后清理。
+    func exportURLs(ids: [UUID]) async -> (urls: [URL], temporaryDirectories: [URL]) {
+        var urls: [URL] = []
+        var directories: [URL] = []
+        for record in records where ids.contains(record.id) {
+            guard let media = try? await prepareMedia(for: record) else { continue }
+            urls.append(media.imageURL)
+            if let videoURL = media.videoURL {
+                urls.append(videoURL)
             }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            if let directory = media.temporaryDirectory {
+                directories.append(directory)
+            }
+        }
+        return (urls, directories)
     }
 
     func permanentDelete(ids: [UUID]) {
         for record in records where ids.contains(record.id) {
             removeFiles(for: record)
-            thumbnailCache.removeValue(forKey: record.id)
+            thumbnailCache.removeObject(forKey: record.id.uuidString as NSString)
             context.delete(record)
         }
         try? context.save()
@@ -398,7 +505,7 @@ final class VaultStore {
 
         VaultCredentials.resetAll()
         VaultLockPolicy.reset()
-        thumbnailCache.removeAll()
+        thumbnailCache.removeAllObjects()
         isUnlocked = false
         reload()
     }
@@ -413,7 +520,7 @@ final class VaultStore {
         let ids = Set(copiedRecords.map(\.id))
         for record in copiedRecords {
             removeFiles(for: record)
-            thumbnailCache.removeValue(forKey: record.id)
+            thumbnailCache.removeObject(forKey: record.id.uuidString as NSString)
             context.delete(record)
         }
         try? context.save()
@@ -430,7 +537,21 @@ final class VaultStore {
         }
     }
 
-    private static func makeThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
+    private static func previewDirectory() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VaultPreview", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// 启动时清掉上次会话遗留的解密临时文件。
+    private static func purgePreviewDirectory() {
+        try? FileManager.default.removeItem(
+            at: FileManager.default.temporaryDirectory.appendingPathComponent("VaultPreview")
+        )
+    }
+
+    nonisolated private static func makeThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

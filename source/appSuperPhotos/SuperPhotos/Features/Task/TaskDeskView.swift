@@ -104,7 +104,7 @@ struct TaskDeskView: View {
     private var finishNowButton: some View {
         Button(action: onFinishNow) {
             HStack(spacing: 5) {
-                Image("icon_check_circle")
+                Image("icon_stop")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 14, height: 14)

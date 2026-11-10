@@ -95,6 +95,28 @@ final class LibraryService {
         return fetched
     }
 
+    /// 未归类任务快照：照常按创建时间倒序取前 `limit` 张，
+    /// 跳过任一用户相簿里的资产（集合由 `AlbumService` 在后台算好）。
+    func uncategorizedTaskItems(skipping classifiedIDs: Set<String>, limit: Int) -> [PhotoItem] {
+        guard accessState.canBrowse, limit > 0 else { return [] }
+
+        let result = fetchResult(for: .all)
+        let excluded = excludedLocalIDs
+
+        var fetched: [PhotoItem] = []
+        fetched.reserveCapacity(min(limit, result.count))
+        result.enumerateObjects { asset, _, stop in
+            if fetched.count >= limit {
+                stop.pointee = true
+                return
+            }
+            let id = asset.localIdentifier
+            guard !classifiedIDs.contains(id), !excluded.contains(id) else { return }
+            fetched.append(PhotoItem(asset: asset))
+        }
+        return fetched
+    }
+
     /// 按给定顺序还原资产；系统里已不存在的资产会被跳过。
     static func items(for assetIDs: [String]) -> [PhotoItem] {
         guard !assetIDs.isEmpty else { return [] }
@@ -117,6 +139,14 @@ final class LibraryService {
     }
 
     // MARK: - 查询
+
+    #if DEBUG
+    /// 模拟器回归用：没有相簿权限时也允许进入工作区，
+    /// 舞台数据由 `HomeView` 的合成任务提供。
+    func debugForceAuthorized() {
+        accessState = .authorized
+    }
+    #endif
 
     private func fetchResult(for filter: LibraryFilter) -> PHFetchResult<PHAsset> {
         let options = PHFetchOptions()

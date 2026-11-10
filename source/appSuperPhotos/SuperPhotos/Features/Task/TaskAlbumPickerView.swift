@@ -1,11 +1,24 @@
 import SwiftUI
 
-/// 开始任务前选择相簿：全部照片 + 我的所有相簿。
+/// 任务取图范围。
+enum AlbumPickerSelection {
+    case all
+    case uncategorized
+    case album(AlbumItem)
+}
+
+/// 开始任务前选择相簿：全部照片 + 未归类照片 + 我的所有相簿。
 struct TaskAlbumPickerView: View {
     let allPhotoCount: Int
+    /// nil 表示首次差集还没算完，行内显示「计算中…」。
+    let uncategorizedCount: Int?
     let albums: [AlbumItem]
-    let onSelect: (AlbumItem?) -> Void
+    let onSelect: (AlbumPickerSelection) -> Void
     let onClose: () -> Void
+
+    @AppStorage(TaskPolicy.batchSizeKey) private var batchSize = TaskPolicy.batchSize
+
+    private var batchLimit: Int { TaskPolicy.clampedBatchSize(batchSize) }
 
     var body: some View {
         NavigationStack {
@@ -17,7 +30,16 @@ struct TaskAlbumPickerView: View {
                         symbolName: "photo.on.rectangle.angled",
                         tint: Theme.Accent.brass
                     ) {
-                        onSelect(nil)
+                        onSelect(.all)
+                    }
+
+                    row(
+                        title: "未归类照片",
+                        count: uncategorizedCount,
+                        symbolName: "folder.badge.questionmark",
+                        tint: Theme.Text.secondary
+                    ) {
+                        onSelect(.uncategorized)
                     }
 
                     if albums.isEmpty {
@@ -34,12 +56,19 @@ struct TaskAlbumPickerView: View {
                                 symbolName: album.symbolName,
                                 tint: Theme.Text.secondary
                             ) {
-                                onSelect(album)
+                                onSelect(.album(album))
                             }
                         }
                     }
                 }
                 .padding(Theme.Spacing.page)
+
+                Text("每批最多取 \(batchLimit) 张（设置里可改）。相簿张数不足时按实际张数开始。")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Text.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Theme.Spacing.page)
+                    .padding(.bottom, Theme.Spacing.page)
             }
             .background(Theme.Surface.base)
             .navigationTitle("选择相簿")
@@ -57,7 +86,7 @@ struct TaskAlbumPickerView: View {
 
     private func row(
         title: String,
-        count: Int,
+        count: Int?,
         symbolName: String,
         tint: Color,
         action: @escaping () -> Void
@@ -75,7 +104,7 @@ struct TaskAlbumPickerView: View {
                         .foregroundStyle(Theme.Text.primary)
                         .lineLimit(1)
 
-                    Text("\(count.formatted()) 张")
+                    Text(count.map { "\($0.formatted()) 张" } ?? "计算中…")
                         .font(Theme.Typography.caption.monospacedDigit())
                         .foregroundStyle(Theme.Text.secondary)
                 }
@@ -92,13 +121,14 @@ struct TaskAlbumPickerView: View {
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(title)，\(count) 张")
+        .accessibilityLabel(count.map { "\(title)，\($0) 张" } ?? "\(title)，正在计算")
     }
 }
 
 #Preview {
     TaskAlbumPickerView(
         allPhotoCount: 20318,
+        uncategorizedCount: 4210,
         albums: [
             AlbumItem(id: "1", title: "旅行", kind: .user, count: 128, symbolName: "folder"),
             AlbumItem(id: "2", title: "家人", kind: .user, count: 64, symbolName: "folder")

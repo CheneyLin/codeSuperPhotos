@@ -198,10 +198,26 @@ enum Theme {
         static let stageInset: CGFloat = 12
         /// 抽屉最大宽度
         static let drawerMaxWidth: CGFloat = 320
-        /// 中栏内容（LCD 屏以下的桌面 / 舞台）整体下移量。
-        /// 桌面态与舞台态共用这一个值：调这里，两种状态一起动。
-        /// 保险箱与 LCD 不使用它，位置保持不变。
-        static let workspaceMiddleOffset: CGFloat = 34
+        /// 废纸篓相对布局位置的下移量。短屏上由 `dockBottomClearance` 收敛，
+        /// 避免把纸篓推出屏幕。
+        static let dockDrop: CGFloat = 40
+        /// 纸篓下移后仍保留在屏幕内的最小净空（含 Home indicator 区）。
+        static let dockBottomClearance: CGFloat = 12
+    }
+
+    /// 保险箱房间的三列紧密网格。
+    enum VaultGrid {
+        /// 固定三列：桌面与 iPad 都不改列数，保持“一行三个”的浏览节奏。
+        static let columnCount = 3
+        /// 1 个物理像素：3x 屏 0.33pt、2x 屏 0.5pt。
+        static let lineWidth: CGFloat = 1 / UIScreen.main.scale
+        /// 分隔线：亮色用深墨低透明度，暗色用白色低透明度；高对比模式加深。
+        static let separator = dynamic(
+            light: 0x2B313A, dark: 0xFFFFFF,
+            lightAlpha: 0.12, darkAlpha: 0.14,
+            lightHighContrast: 0x101418, darkHighContrast: 0xFFFFFF,
+            lightHighContrastAlpha: 0.26, darkHighContrastAlpha: 0.30
+        )
     }
 
     // MARK: - 工具

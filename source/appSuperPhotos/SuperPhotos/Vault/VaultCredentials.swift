@@ -6,6 +6,9 @@ import Security
 /// 组合 `L=07|R=23` 只在内存中出现，不写 UserDefaults、不打日志。
 enum VaultCredentials {
     static let service = "dev.superphotos.vault"
+    /// 双盘刻度：0...39（40 档）。左右一致，不再区分内外圈。
+    static let dialCount = 40
+    static let maxDialValue = dialCount - 1
     private static let account = "credentials"
     nonisolated private static let iterations: UInt32 = 120_000
     nonisolated private static let keyLength = 32
@@ -75,7 +78,7 @@ enum VaultCredentials {
 
     /// 随机生成一组组合，供设置页的“随机组合”提示使用。
     static func randomCombination() -> (a: Int, b: Int) {
-        (Int.random(in: 0...12), Int.random(in: 0...36))
+        (Int.random(in: 0...maxDialValue), Int.random(in: 0...maxDialValue))
     }
 
     #if DEBUG

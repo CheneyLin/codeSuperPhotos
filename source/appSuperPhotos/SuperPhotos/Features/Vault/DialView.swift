@@ -36,6 +36,7 @@ struct DialView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(label)密码盘")
             .accessibilityValue("\(value)")
+            .accessibilityHint("范围 0 到 \(count - 1)，上下轻扫每次调整一档")
             .accessibilityAdjustableAction { direction in
                 guard isEnabled else { return }
                 switch direction {
@@ -196,8 +197,8 @@ struct DialView: View {
 
 #Preview {
     HStack(spacing: 24) {
-        DialView(label: "左盘 A", count: 13, value: .constant(7))
-        DialView(label: "右盘 B", count: 37, value: .constant(23))
+        DialView(label: "左盘 A", count: VaultCredentials.dialCount, value: .constant(7))
+        DialView(label: "右盘 B", count: VaultCredentials.dialCount, value: .constant(23))
     }
     .padding(32)
     .background(Theme.Surface.base)

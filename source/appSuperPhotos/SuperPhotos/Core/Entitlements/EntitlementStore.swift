@@ -67,10 +67,6 @@ final class EntitlementStore {
         )
     }
 
-    func batchLimit() -> Int {
-        VaultLimits.batchLimit(for: tier)
-    }
-
     /// nil 表示不限。
     func remainingItemCount(usedItems: Int) -> Int? {
         guard tier == .free else { return nil }

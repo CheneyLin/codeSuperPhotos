@@ -32,6 +32,8 @@ struct SettingsView: View {
     @State private var isVaultResetPresented = false
     @State private var isSnoozeListPresented = false
     @AppStorage(VaultAutoLock.defaultsKey) private var autoLockSeconds = VaultAutoLock.immediate.rawValue
+    @AppStorage(VaultEncryptionMode.defaultsKey) private var encryptionModeRaw = VaultEncryptionMode.standard.rawValue
+    @AppStorage(TaskPolicy.batchSizeKey) private var batchSize = TaskPolicy.batchSize
 
     private let gigabyte: Int64 = 1024 * 1024 * 1024
 
@@ -56,6 +58,7 @@ struct SettingsView: View {
             Form {
                 appearanceSection
                 statisticsSection
+                taskSection
                 snoozeSection
                 vaultSection
                 vipSection
@@ -175,6 +178,24 @@ struct SettingsView: View {
 
     // MARK: - 统计
 
+    private var taskSection: some View {
+        Section {
+            Stepper(
+                "每批 \(batchSize) 张",
+                value: $batchSize,
+                in: TaskPolicy.batchSizeRange,
+                step: TaskPolicy.batchSizeStep
+            )
+            .accessibilityLabel("每批张数")
+            .accessibilityValue("每批 \(batchSize) 张")
+            .accessibilityHint("范围 10 到 200 张，每次增加或减少 10 张")
+        } header: {
+            Text("整理")
+        } footer: {
+            Text("只影响之后新建的批次；正在进行的任务按开始时的张数计算进度，中途修改不会改变分母。相簿不足时按实际张数开始。")
+        }
+    }
+
     private var statisticsSection: some View {
         Section {
             NavigationLink(value: SettingsRoute.statistics) {
@@ -241,6 +262,12 @@ struct SettingsView: View {
                 }
             }
 
+            Picker("内容保护", selection: $encryptionModeRaw) {
+                ForEach(VaultEncryptionMode.allCases) { mode in
+                    Text(mode.title).tag(mode.rawValue)
+                }
+            }
+
             Button(role: .destructive) {
                 isVaultResetPresented = true
             } label: {
@@ -250,7 +277,7 @@ struct SettingsView: View {
         } header: {
             Text("私密保险箱")
         } footer: {
-            Text("密码盘组合空间 13 × 37 = 481 种（约 8.9 bit），能挡住随手翻看，挡不住有时间暴力尝试的人；已配合阶梯锁定。密码忘记后无法找回。")
+            Text("密码盘组合空间 40 × 40 = 1600 种（约 10.6 bit），能挡住随手翻看，挡不住有时间暴力尝试的人；已配合阶梯锁定。密码忘记后无法找回。\n\n内容保护：标准（默认）把文件以普通格式存放在 App 沙盒，只受 iOS 沙盒与系统文件保护，App 密码只保护界面访问，不做应用层加密；强加密才使用 AES-GCM 与仅存本机的 Keychain 内容密钥。两档文件都不进入 iCloud / iTunes 备份。切换只影响之后存入的内容，切换前已存入的条目不保证可读（开发期不做迁移）。")
         }
     }
 
@@ -341,13 +368,6 @@ struct SettingsView: View {
         probeRow(title: "容量：60 件 / 2.0GB", result: entitlements.quotaStatus(usedItems: 60, usedBytes: 2 * gigabyte))
         probeRow(title: "容量：61 件", result: entitlements.quotaStatus(usedItems: 61, usedBytes: 2 * gigabyte))
         probeRow(title: "容量：2.1GB", result: entitlements.quotaStatus(usedItems: 60, usedBytes: Int64(2.1 * Double(gigabyte))))
-
-        HStack {
-            Text("批量上限")
-            Spacer()
-            Text("\(entitlements.batchLimit()) 张")
-                .foregroundStyle(.secondary)
-        }
     }
 
     private func probeRow(title: String, result: GateResult) -> some View {

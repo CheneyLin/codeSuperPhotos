@@ -21,7 +21,6 @@ struct VaultLockView: View {
     @State private var mode: Mode = .unlock
     @State private var errorText: String?
     @State private var isVerifying = false
-    @State private var hasInteracted = false
     @State private var shakeOffset: CGFloat = 0
 
     @State private var isLocked = false
@@ -68,18 +67,20 @@ struct VaultLockView: View {
             isRoomOpen = false
             left = 0
             right = 0
-            hasInteracted = false
             errorText = nil
             refreshLockState()
         }
         #if DEBUG
         .task {
-            guard ProcessInfo.processInfo.environment["UI_TEST_VAULT_AUTOUNLOCK"] == "1" else { return }
+            // "1" = 正确组合；"wrong" = 错误组合。两者都必须显式按一次「开门」。
+            let hook = ProcessInfo.processInfo.environment["UI_TEST_VAULT_AUTOUNLOCK"]
+            guard hook == "1" || hook == "wrong" else { return }
             guard mode == .unlock else { return }
             try? await Task.sleep(for: .milliseconds(900))
-            left = 7
-            right = 23
-            hasInteracted = true
+            left = hook == "wrong" ? 3 : 7
+            right = hook == "wrong" ? 3 : 23
+            try? await Task.sleep(for: .milliseconds(300))
+            attemptUnlock()
         }
         #endif
         .task {
@@ -87,12 +88,6 @@ struct VaultLockView: View {
                 refreshLockState()
                 try? await Task.sleep(for: .seconds(1))
             }
-        }
-        .task(id: "\(left)-\(right)-\(mode)-\(hasInteracted)") {
-            guard mode == .unlock, hasInteracted, !isLocked, vault.isConfigured else { return }
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled else { return }
-            attemptUnlock()
         }
         .alert("密码已设置", isPresented: $showComboAck) {
             Button("我记下了") {
@@ -156,24 +151,22 @@ struct VaultLockView: View {
     private func dials(diameter: CGFloat) -> some View {
         HStack(alignment: .top, spacing: Theme.Spacing.lg) {
             DialView(
-                label: "左盘 A · 0–12",
-                count: 13,
+                label: "左盘 A · 0–\(VaultCredentials.maxDialValue)",
+                count: VaultCredentials.dialCount,
                 value: $left,
                 isEnabled: dialsEnabled,
                 diameter: diameter
             ) {
-                hasInteracted = true
                 errorText = nil
             }
 
             DialView(
-                label: "右盘 B · 0–36",
-                count: 37,
+                label: "右盘 B · 0–\(VaultCredentials.maxDialValue)",
+                count: VaultCredentials.dialCount,
                 value: $right,
                 isEnabled: dialsEnabled,
                 diameter: diameter
             ) {
-                hasInteracted = true
                 errorText = nil
             }
         }
@@ -185,13 +178,17 @@ struct VaultLockView: View {
                 Text("已锁定，请在 \(countdownText) 后重试")
                     .font(Theme.Typography.headline.monospacedDigit())
                     .foregroundStyle(Theme.State.danger)
+            } else if isVerifying {
+                Text("正在核对组合…")
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.Text.secondary)
             } else if let errorText {
                 Text(errorText)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.State.danger)
                     .multilineTextAlignment(.center)
             } else {
-                Text(mode == .setupConfirm ? "请再转一次相同的组合" : "两盘停稳 600ms 后自动校验")
+                Text(mode == .setupConfirm ? "请再转一次相同的组合" : "转好两个盘后点「开门」")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
             }
@@ -215,11 +212,16 @@ struct VaultLockView: View {
             .buttonStyle(
                 NeuButtonStyle(
                     variant: .raised,
-                    tint: Theme.Accent.brass,
+                    tint: canPressDoor ? Theme.Accent.brass : Theme.Text.tertiary,
                     horizontalPadding: Theme.Spacing.xxl
                 )
             )
-            .disabled(isLocked || isVerifying)
+            .opacity(canPressDoor ? 1 : 0.7)
+            // 只有点这里才比对：两盘停稳不触发校验。
+            // 0/0 也是合法组合，所以不要求“两盘都动过”才可点。
+            .disabled(!canPressDoor)
+            .accessibilityLabel("开门")
+            .accessibilityHint("用左盘 \(left) 和右盘 \(right) 的当前读数尝试解锁")
 
         case .setupFirst:
             Button {
@@ -227,7 +229,6 @@ struct VaultLockView: View {
                 mode = .setupConfirm
                 left = 0
                 right = 0
-                hasInteracted = false
                 errorText = "再转一次相同组合，确认你记住了"
             } label: {
                 Label("下一步", systemImage: "arrow.right")
@@ -247,7 +248,6 @@ struct VaultLockView: View {
                     setupFirstCombo = nil
                     left = 0
                     right = 0
-                    hasInteracted = false
                     errorText = nil
                 }
                 .buttonStyle(NeuButtonStyle(variant: .raisedSmall, cornerRadius: Theme.Radius.chip))
@@ -270,7 +270,7 @@ struct VaultLockView: View {
 
     private var footnote: some View {
         VStack(spacing: Theme.Spacing.xs) {
-            Text("13 × 37 = 481 种组合。忘记密码后无法找回，请先记下再继续。")
+            Text("40 × 40 = 1600 种组合。忘记密码后无法找回，请先记下再继续。")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
                 .multilineTextAlignment(.center)
@@ -288,6 +288,11 @@ struct VaultLockView: View {
         !isLocked && !isVerifying
     }
 
+    /// 开门按钮只在锁定倒计时或核对中禁用；0/0 是合法组合，不要求先动过盘。
+    private var canPressDoor: Bool {
+        !isLocked && !isVerifying
+    }
+
     private var titleText: String {
         switch mode {
         case .unlock: "私密保险箱"
@@ -298,7 +303,7 @@ struct VaultLockView: View {
 
     private var subtitleText: String {
         switch mode {
-        case .unlock: "拖动两个密码盘到正确位置"
+        case .unlock: "转动两个密码盘，再点「开门」"
         case .setupFirst: "选择任意组合，设置后无法找回"
         case .setupConfirm: "再输入一次，确保组合无误"
         }
@@ -343,10 +348,13 @@ struct VaultLockView: View {
                 openDoor()
             case .wrong(let remaining):
                 fail("密码不对，还剩 \(remaining) 次")
-            case .locked:
+            case .locked(let seconds):
                 refreshLockState()
                 errorText = "已锁定，请等待倒计时结束"
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
+                AccessibilityNotification.Announcement(
+                    "尝试次数过多，已锁定，请在 \(seconds) 秒后重试"
+                ).post()
             case .notConfigured:
                 mode = .setupFirst
             }
@@ -363,7 +371,6 @@ struct VaultLockView: View {
             setupFirstCombo = nil
             left = 0
             right = 0
-            hasInteracted = false
             fail("两次组合不一致，请重新设置")
             return
         }
@@ -381,6 +388,8 @@ struct VaultLockView: View {
     private func fail(_ message: String) {
         errorText = message
         UINotificationFeedbackGenerator().notificationOccurred(.error)
+        // 失败反馈除颜色与抖动外，必须有一条独立的语音播报。
+        AccessibilityNotification.Announcement(message).post()
 
         withAnimation(.linear(duration: 0.06).repeatCount(3, autoreverses: true)) {
             shakeOffset = 8
@@ -389,9 +398,9 @@ struct VaultLockView: View {
             try? await Task.sleep(for: .milliseconds(380))
             withAnimation(.easeOut(duration: 0.2)) {
                 shakeOffset = 0
+                // 失败后两盘回到 0：避免原样再按一次重复消耗失败次数。
                 left = 0
                 right = 0
-                hasInteracted = false
             }
         }
     }

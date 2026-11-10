@@ -7,6 +7,8 @@ struct PegboardHookButton: View {
     var iconSize: CGFloat = 54
     /// 自增时绕「上边中点」轻晃一次；由外部在需要提示时触发。
     var swayToken: Int = 0
+    /// 处理态禁用：保留占位与布局，只降到 50% 透明度。
+    var isEnabled: Bool = true
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -47,10 +49,12 @@ struct PegboardHookButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    guard !isPressed else { return }
+                    guard isEnabled, !isPressed else { return }
                     withAnimation(Theme.Motion.animation(.spring, reduceMotion: reduceMotion)) {
                         isPressed = true
                     }
@@ -90,5 +94,33 @@ struct PegboardHookButton: View {
         }
         .padding(.horizontal, 24)
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// 洞洞板上的小圆形操作按钮：处理态才出现，最小 64pt 命中区。
+struct PegboardActionButton: View {
+    let assetName: String
+    let accessibilityTitle: String
+    var accessibilityHintText: String = ""
+    var isEnabled: Bool = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(assetName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 60, height: 60)
+                .shadow(color: .black.opacity(0.18), radius: 5, x: 0, y: 4)
+                // 命中区严格等于 44pt 圆形，不向四周透明放大。
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 64, height: 64)
+        .contentShape(Circle())
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.5)
+        .accessibilityLabel(accessibilityTitle)
+        .accessibilityHint(isEnabled ? accessibilityHintText : "当前不可用")
     }
 }

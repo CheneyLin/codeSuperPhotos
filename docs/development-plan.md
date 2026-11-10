@@ -209,7 +209,6 @@ enum Feature: CaseIterable {
     case vaultUnlimitedCapacity // 不限 60 件 / 2GB
     case statsAdvanced          // 趋势图 / 分布 / 报告
     case extraMachines          // 二期更多销毁玩法
-    case batchLimit100          // 批量 100（免费 50）
     case dialSkins              // 密码盘皮肤 / 音效包
 }
 
@@ -226,7 +225,6 @@ enum GateResult: Equatable {
   - `func isEnabled(_ feature: Feature) -> Bool`
   - `func canImport(kind: MediaKind) -> GateResult`
   - `func quotaStatus(usedItems: Int, usedBytes: Int64) -> GateResult`
-  - `func batchLimit(for tier:) -> Int`
 - 免费仅静态图片：`photo / screenshot / panorama / animated` 视为图片；`livePhoto / video` 拒绝并给 `requiresVIP` 文案。
 - 免费容量 60 件 / 2GB；VIP 不限。判定用"当前清单条数 + 待入库条数"与"已用字节 + 待入库字节"。
 - 调用点必须集中在 `VaultImporter`、`DestroyCoordinator`、`StatsView`、`SettingsView` 四处，页面里不许出现 `if tier == .vip` 的散落判断。
@@ -249,6 +247,7 @@ protocol LibraryServing {
 - 查询：`PHFetchOptions` 按 `creationDate` 倒序 + `predicate` 缩小媒体类型范围；`isHidden` 与保险箱 id 集合在 `LibraryService` 内存中排除（单点入口，界面不得自行 fetch）。
 - 缩略图：`PHCachingImageManager` 预热前后各 3 张，目标尺寸 = 舞台宽 × 2，`resizeMode = .fast`、`deliveryMode = .highQualityFormat`。
 - 变更：`PHPhotoLibraryChangeObserver` → 300ms 去抖 → 重取并发出 `libraryDidChange` 事件。
+- 未归类：`AlbumService` 启动后 `Task.detached(.utility)` 计算「可见照片 − `albumRegular` 成员 − 保险箱 id」，只扣用户自建相簿；`classifiedLocalIDs` 常驻内存供任务取数跳过，20 万张约 10–15MB。变更触发重算时若已有扫描在跑，只置一个 pending 标记，本轮结束后合并再算一次；新结果落盘前保留旧值，弹窗不闪 0。授权范围变化后 `load(force:)` 重算。
 
 ### 4.3 舞台（分页 + 缩放）
 
@@ -311,10 +310,10 @@ final class DestroyCoordinator {
 ### 4.7 密码盘
 
 - 旋转输入：`DragGesture` 取相对盘心的 `atan2` 角度，累加并解缠绕（跨 0/360 不跳变）。
-- 档位换算：A 盘 `step = 2π/13`，B 盘 `step = 2π/37`；吸附阈值 40%，其余回弹。
+- 档位换算：两盘统一 `step = 2π/40`（0–39）；吸附阈值 40%，其余回弹。
 - 触感：每次档位变化触发 `UISelectionFeedbackGenerator.selectionChanged()`；快速旋转时限流到 30ms 一次。
-- 自动校验：两个盘都停止变化 600ms 后触发一次校验（用 `Task.sleep` + 版本号防抖）。
-- VoiceOver：`accessibilityAdjustableAction`，上下轻扫 ±1 档，值朗读"左盘 7，右盘 23"。
+- 校验时机：盘面停稳不校验；只有点「开门」才读取两盘当前值并比对。0/0 是合法组合，按钮不要求"两盘都动过"。
+- VoiceOver：`accessibilityAdjustableAction`，上下轻扫 ±1 档，值朗读当前档位并提示"范围 0 到 39"；开门按钮标签"开门"，失败与锁定分别播报文案。
 - 视觉：数字用 `Text` + 内阴影；旋转用 `rotationEffect`，高光方向固定（不随盘旋转，保持光源一致）。
 
 ### 4.8 凭据与文件保护
@@ -412,7 +411,7 @@ enum VaultCredentials {
 
 #### M1 VIP 权益层（优先）
 
-- 交付：`EntitlementTier` / 来源 / 快照、`Feature` 映射、`EntitlementStore`（模拟来源 + 持久化）、`VaultLimits`（媒体类型 / 容量 / 批量）、设置页"模拟 VIP"开关（先用系统 List 呈现）。
+- 交付：`EntitlementTier` / 来源 / 快照、`Feature` 映射、`EntitlementStore`（模拟来源 + 持久化）、`VaultLimits`（媒体类型 / 容量）、设置页"模拟 VIP"开关（先用系统 List 呈现）。
 - 验收：免费时实况/视频被拦截并给出升级文案；60 件 / 2GB 边界判定正确（59/60/61、1.9/2.0/2.1GB）；VIP 全放开；切换即时生效且重启保持；门禁调用点仅 4 处；无价格与购买文案。
 
 #### M2 设计系统
@@ -433,7 +432,7 @@ enum VaultCredentials {
 #### M5 筛选与相簿抽屉
 
 - 交付：类型 chips（6 类）、相簿 chip、右侧抽屉/Regular 右列（智能相簿 + 我的相簿 + 数量）、空态。
-- 验收：类型映射与系统相簿一致（固定样本集逐类核对）；相簿数量正确；空相簿不展示；选择后舞台回到第 1 张；抽屉/列与舞台手势零冲突。
+- 验收：类型映射与系统相簿一致（固定样本集逐类核对）；相簿数量正确；空相簿不展示；选择后舞台回到第 1 张；抽屉/列与舞台手势零冲突；「未归类照片」数量 = 可见照片 − 用户相簿成员 − 保险箱，且与任务实际取到的张数一致。
 
 #### M6 销毁坞
 
@@ -443,12 +442,12 @@ enum VaultCredentials {
 #### M7 保险箱
 
 - 交付：预览抽屉/Regular 左列、密码盘锁屏、锁定策略、Keychain 凭据、`.completeFileProtection`、入库（复制 + 删除原件）、取出（重建）、导出/永久删除、隐私遮罩、免费媒体类型门禁。
-- 验收：0–12 / 0–36 全档位可达且吸附准确；错误 5 次锁 60s，杀进程不重置；正确解锁到开门 < 300ms；**免费账号入库实况/视频被拒且提示清晰**；VIP 入库 Live Photo 双资源完整；入库后原件从相簿消失（最近删除可见）；取出重建后创建时间与相簿归属正确；App 被杀后清单与文件一致；重置彻底清空；后台切回必锁且多任务快照无内容。
+- 验收：两盘 0–39 全档位可达且吸附准确；停稳不自动校验，点开门才比对；错误 5 次锁 60s，杀进程不重置；正确解锁到开门 < 300ms；**免费账号入库实况/视频被拒且提示清晰**；VIP 入库 Live Photo 双资源完整；入库后原件从相簿消失（最近删除可见）；取出重建后创建时间与相簿归属正确；App 被杀后清单与文件一致；重置彻底清空；后台切回必锁且多任务快照无内容。
 
 #### M8 设置与统计
 
-- 交付：显示模式、高对比度、降低动效、音效开关、统计页与重置、VIP 权益页（由 `EntitlementStore` 驱动）、密码管理、关于与隐私。
-- 验收：显示模式即时生效且重启保持；统计在 3 组固定样本上与手工计数一致；修改密码需旧密码；重置保险箱有双重确认；VIP 页随模拟开关即时变化且无价格/购买按钮。
+- 交付：显示模式、高对比度、降低动效、音效开关、**每批张数（10–200、步长 10、默认 100，写入 `UserDefaults["task.batchSize"]`，只对新建批次生效）**、统计页与重置、VIP 权益页（由 `EntitlementStore` 驱动）、密码管理、关于与隐私。
+- 验收：显示模式即时生效且重启保持；每批张数重启保持，处理中改设置不改变当前进度分母，10 与 200 两端可取；统计在 3 组固定样本上与手工计数一致；修改密码需旧密码；重置保险箱有双重确认；VIP 页随模拟开关即时变化且无价格/购买按钮。
 
 #### M9 打磨与提测
 
@@ -481,9 +480,10 @@ enum VaultCredentials {
 ## 8. 测试计划
 
 **单元测试（必做）**
-- 权益：免费/VIP × 媒体类型（6 类）、容量（59/60/61、1.9/2.0/2.1GB）、批量上限（50/100）；模拟开关持久化与恢复。
+- 权益：免费/VIP × 媒体类型（6 类）、容量（59/60/61、1.9/2.0/2.1GB）；模拟开关持久化与恢复。
+- 批次数量：10/200 两端、越界值夹取、未设置回落 `TaskPolicy.batchSize`；新建批次读取设置，进行中任务的分母取快照 `assetIDs.count` 且恢复时用快照 `batchSize`。
 - 筛选映射：6 种类型 × 相簿范围的组合。
-- 密码盘：角度 → 档位换算的边界（0/12/36、跨 360°、反向旋转）。
+- 密码盘：角度 → 档位换算的边界（0/39、跨 360°、反向旋转）。
 - 凭据：PBKDF2 验证值稳定性、常数时间比较、错误计数与锁定时间推进。
 - 保险箱清单：写入/读取/重建/删除后的一致性；相对路径在容器变更后仍可用；`pendingRemoval` 重试。
 - 统计：事件 → 日汇总 → 月聚合；"未知大小"不计入总量。
@@ -511,7 +511,7 @@ enum VaultCredentials {
 | 2 | 舞台翻页/缩放/拖拽互斥失败 | 高 | UIKit 分页器兜底方案，M4 先做手势专项验证 |
 | 3 | 五区信息密度过高，新用户迷失 | 中 | 折叠坞 + 首次引导 + 抽屉互斥 + 首次 3 次手势提示 |
 | 4 | 每次删除都弹系统确认，打断心流 | 中 | 批量合并为一次；蓄力阶段提前显示数量 |
-| 5 | 密码盘组合仅 481 种 | 中 | 阶梯锁定 + 随机组合生成 + 文案诚实 + 二期 Face ID |
+| 5 | 密码盘组合仅 1600 种 | 中 | 阶梯锁定 + 随机组合生成 + 文案诚实 + 二期 Face ID |
 | 6 | 保险箱副本导致双倍存储 | 中 | 免费容量上限 + 入库预检 + 占用可视化 |
 | 7 | iCloud-only 资源入库慢/失败 | 中 | 进度 + 允许网络 + 失败回滚 + 跳过此张 |
 | 8 | 动画在低端机型掉帧 | 中 | 预切片、粒子降级、低电量模式分支 |

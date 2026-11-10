@@ -14,7 +14,7 @@ struct OnboardingView: View {
         OnboardingPage(
             symbol: "rectangle.stack",
             title: "从桌面开始一批",
-            subtitle: "桌面不展示照片，选一个相簿，一次最多整理 \(TaskPolicy.batchSize) 张。",
+            subtitle: "桌面不展示照片，选一个相簿，一次最多整理 \(TaskPolicy.configuredBatchSize) 张。",
             items: [
                 .init("photo.stack", "选择相簿", "「全部照片」或任意自建相簿，按顺序逐张处理。"),
                 .init("photo", "中央舞台", "四张堆叠，轻点全屏，双指缩放。"),

@@ -20,8 +20,8 @@ enum VaultRestoreError: LocalizedError {
 
 /// 取出：原件已在入库时删除，因此一律用 `PHAssetCreationRequest` 重建。
 enum VaultRestorer {
-    static func restore(_ record: VaultRecord) async throws {
-        let primaryURL = Paths.vaultFileURL(relativePath: record.relativePath)
+    static func restore(_ record: VaultRecord, media: VaultPreparedMedia) async throws {
+        let primaryURL = media.imageURL
         guard FileManager.default.fileExists(atPath: primaryURL.path) else {
             throw VaultRestoreError.missingFile
         }
@@ -41,13 +41,11 @@ enum VaultRestorer {
                 } else {
                     request.addResource(with: .photo, fileURL: primaryURL, options: options)
 
-                    if let pairedPath = record.pairedVideoPath {
-                        let pairedURL = Paths.vaultFileURL(relativePath: pairedPath)
-                        if FileManager.default.fileExists(atPath: pairedURL.path) {
-                            let pairedOptions = PHAssetResourceCreationOptions()
-                            pairedOptions.originalFilename = pairedFileName(for: record.fileName)
-                            request.addResource(with: .pairedVideo, fileURL: pairedURL, options: pairedOptions)
-                        }
+                    if let pairedURL = media.videoURL,
+                       FileManager.default.fileExists(atPath: pairedURL.path) {
+                        let pairedOptions = PHAssetResourceCreationOptions()
+                        pairedOptions.originalFilename = pairedFileName(for: record.fileName)
+                        request.addResource(with: .pairedVideo, fileURL: pairedURL, options: pairedOptions)
                     }
                 }
 
