@@ -8,7 +8,7 @@ import UIKit
 final class DestroyCoordinator {
     private(set) var phase: DestroyPhase = .idle
     private(set) var progress: Double = 0
-    private(set) var machine: MachineKind = .fireplace
+    private(set) var machine: MachineKind = .wasteBasket
     private(set) var tickets: [DestroyTicket] = []
     /// 本次批量销毁的张数，蓄力阶段由界面读取。
     private(set) var pendingCount = 0
@@ -40,9 +40,13 @@ final class DestroyCoordinator {
         phase = .idle
     }
 
-    func switchMachine(_ kind: MachineKind) {
-        guard !phase.isBusy else { return }
+    /// 切换道具；销毁流程进行中拒绝切换，返回值告诉调用方是否真的生效，
+    /// 避免设置项与界面显示分叉。
+    @discardableResult
+    func switchMachine(_ kind: MachineKind) -> Bool {
+        guard !phase.isBusy else { return false }
         machine = kind
+        return true
     }
 
     // MARK: - 执行

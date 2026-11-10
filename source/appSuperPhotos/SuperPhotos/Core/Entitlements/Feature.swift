@@ -26,9 +26,9 @@ enum Feature: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .vaultAllMediaTypes: "免费版只支持静态图片"
         case .vaultUnlimitedCapacity: "免费版上限 60 件 / 2GB"
-        case .statsAdvanced: "免费版仅今日、本周与累计总量"
-        case .extraMachines: "二期上线"
-        case .dialSkins: "免费版含 1 套基础外观"
+        case .statsAdvanced: "免费版含今日、本周、累计与五款道具分布"
+        case .extraMachines: "免费版可切换全部五款道具"
+        case .dialSkins: "免费版含 1 套基础外观与基础音效"
         }
     }
 }

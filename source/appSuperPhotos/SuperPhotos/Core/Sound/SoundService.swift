@@ -12,8 +12,12 @@ final class SoundService {
         case destroyFinish
         case vaultImport
         case vaultRestore
-        /// 照片落进纸篓的揉纸声。
+        /// 照片落进废纸篓的揉纸声（保留给旧调用点 / 兜底）。
         case paperCrunch
+        /// 轻点底部道具循环切换时的 UI 提示音。
+        case deviceSwitch
+        /// 照片落入当前道具时的专属音效。
+        case deviceDrop(MachineKind)
 
         var resourceName: String {
             switch self {
@@ -21,7 +25,19 @@ final class SoundService {
             case .destroyFinish: "destroy_finish"
             case .vaultImport, .vaultRestore: "vault_import"
             case .paperCrunch: "paper_crunch"
+            case .deviceSwitch: "device_switch"
+            case .deviceDrop(let machine): machine.soundName
             }
+        }
+
+        /// 切换提示比业务音效轻一档，连点时不刺耳。
+        var volume: Float {
+            self.isDeviceSwitch ? 0.45 : 0.7
+        }
+
+        var isDeviceSwitch: Bool {
+            if case .deviceSwitch = self { return true }
+            return false
         }
     }
 
@@ -33,21 +49,31 @@ final class SoundService {
 
     func play(_ event: Event) {
         guard isEnabled else { return }
-        guard let player = player(for: event.resourceName) else { return }
+        guard let player = player(for: event) else { return }
         player.currentTime = 0
         player.play()
     }
 
-    private func player(for name: String) -> AVAudioPlayer? {
+    /// 语义化入口：照片落入当前道具时调用。
+    func play(device: MachineKind) {
+        play(.deviceDrop(device))
+    }
+
+    private func player(for event: Event) -> AVAudioPlayer? {
+        let name = event.resourceName
         if let cached = players[name] { return cached }
-        guard let url = Self.resourceURL(name: name) else {
-            assertionFailure("缺少音效素材：\(name).wav")
-            return nil
+
+        // 五款道具素材是后加的，任何一份缺失都不能让整理流程崩在断言上：
+        // 先退回通用揉纸声，再退回静音。
+        var url = Self.resourceURL(name: name)
+        if url == nil, case .deviceDrop = event {
+            url = Self.resourceURL(name: "paper_crunch")
         }
+        guard let resolvedURL = url else { return nil }
 
         configureSessionIfNeeded()
-        guard let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
-        player.volume = 0.7
+        guard let player = try? AVAudioPlayer(contentsOf: resolvedURL) else { return nil }
+        player.volume = event.volume
         player.prepareToPlay()
         players[name] = player
         return player

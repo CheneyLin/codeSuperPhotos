@@ -44,7 +44,7 @@ struct StatisticsView: View {
         .alert("需要 VIP", isPresented: $isVIPHintPresented) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text("免费版提供今日、本周与累计统计；本月与方式偏好属于 VIP 权益。一期只有模拟开关，不涉及购买。")
+            Text("免费版提供今日、本周、累计与五款道具分布；本月统计属于 VIP 权益。一期只有模拟开关，不涉及购买。")
         }
         .toast($toastMessage, topPadding: 8)
         .task {
@@ -178,89 +178,36 @@ struct StatisticsView: View {
         .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.card)
     }
 
-    // MARK: - 方式偏好
+    // MARK: - 道具使用分布
 
-    @ViewBuilder
+    /// 五款道具的件数与占比对所有档位开放：这是「用了哪款道具」的客观记录，
+    /// 与 VIP 的「本月周期 / 趋势报告」不是同一类信息。
     private var preferenceCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             HStack {
-                Text("销毁方式偏好")
+                Text("道具使用分布")
                     .font(Theme.Typography.headline)
                     .foregroundStyle(Theme.Text.primary)
                 Spacer()
-                if !entitlements.isEnabled(.statsAdvanced) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Theme.Text.tertiary)
+                if let top = summary.topMachine {
+                    Text("最常用 · \(top.displayName)")
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.secondary)
                 }
             }
 
-            if entitlements.isEnabled(.statsAdvanced) {
-                if summary.destroyed == 0 {
-                    Text("这个周期还没有销毁记录。")
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.Text.secondary)
-                } else {
-                    preferenceBar
-                }
-            } else {
-                Text("方式偏好属于 VIP 权益。免费版已提供今日、本周与累计统计。")
+            if summary.destroyed == 0 {
+                Text("这个周期还没有销毁记录。")
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Text.secondary)
-
-                NavigationLink {
-                    VIPView()
-                } label: {
-                    Text("查看权益对比")
-                        .font(Theme.Typography.caption.weight(.semibold))
-                        .foregroundStyle(Theme.Accent.fire)
-                }
+            } else {
+                DeviceDistributionBar(summary: summary, height: 12)
+                DeviceDistributionList(summary: summary)
             }
         }
         .padding(Theme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .neuSurface(.raised, cornerRadius: Theme.Radius.card)
-    }
-
-    private var preferenceBar: some View {
-        let total = max(summary.destroyed, 1)
-        let fireRatio = CGFloat(summary.fireplace) / CGFloat(total)
-        let shredRatio = CGFloat(summary.shredder) / CGFloat(total)
-
-        return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            GeometryReader { proxy in
-                HStack(spacing: 2) {
-                    if summary.fireplace > 0 {
-                        Rectangle()
-                            .fill(Theme.Accent.fire)
-                            .frame(width: max(proxy.size.width * fireRatio - 1, 2))
-                    }
-                    if summary.shredder > 0 {
-                        Rectangle()
-                            .fill(Theme.Accent.metal)
-                            .frame(width: max(proxy.size.width * shredRatio - 1, 2))
-                    }
-                }
-                .clipShape(Capsule())
-            }
-            .frame(height: 10)
-
-            HStack(spacing: Theme.Spacing.lg) {
-                legend(color: Theme.Accent.fire, label: "壁炉", count: summary.fireplace)
-                legend(color: Theme.Accent.metal, label: "碎纸机", count: summary.shredder)
-            }
-        }
-    }
-
-    private func legend(color: Color, label: String, count: Int) -> some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text("\(label) \(count)")
-                .font(Theme.Typography.caption.monospacedDigit())
-                .foregroundStyle(Theme.Text.secondary)
-        }
     }
 
     // MARK: - 保险箱占用
@@ -290,7 +237,7 @@ struct StatisticsView: View {
     // MARK: - 页脚与重置
 
     private var footer: some View {
-        Text("口径：已浏览 = 单次停留 ≥ 0.5 秒的照片，按唯一资产计；已销毁件数按机器统计；释放空间为本地资源大小估算，iCloud 未下载的资产计为未知；系统『最近删除』保留 30 天，空间由系统延迟回收。")
+        Text("口径：已浏览 = 单次停留 ≥ 0.5 秒的照片，按唯一资产计；已销毁件数按当时选中的道具（废纸篓 / 碎纸机 / 壁炉 / 邮筒 / 任意门）分别统计，占比以本周期销毁总数为分母；释放空间为本地资源大小估算，iCloud 未下载的资产计为未知；系统『最近删除』保留 30 天，空间由系统延迟回收。")
             .font(Theme.Typography.caption)
             .foregroundStyle(Theme.Text.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -66,7 +66,7 @@ struct VaultDoorColumn: View {
                 .opacity(isOpen ? 1 : 0)
                 .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: isOpen)
 
-            Image("vault")
+            Image("image_vault")
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)

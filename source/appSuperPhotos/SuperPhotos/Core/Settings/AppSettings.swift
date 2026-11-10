@@ -34,6 +34,7 @@ final class AppSettings {
         static let highContrast = "settings.highContrast"
         static let reduceMotion = "settings.reduceMotion"
         static let soundEnabled = "settings.soundEnabled"
+        static let destroyMachine = "settings.destroyMachine"
         static let defaultAlbumID = "settings.defaultAlbumID"
         static let defaultAlbumTitle = "settings.defaultAlbumTitle"
     }
@@ -58,6 +59,12 @@ final class AppSettings {
         didSet { defaults.set(soundEnabled, forKey: Keys.soundEnabled) }
     }
 
+    /// 底部当前道具。首页的点击切换与设置页的选择器共用这一份，
+    /// 重启后保持；未知 rawValue（旧版本 / 脏数据）回退到废纸篓。
+    var destroyMachine: MachineKind {
+        didSet { defaults.set(destroyMachine.rawValue, forKey: Keys.destroyMachine) }
+    }
+
     /// 右侧收藏夹区的默认相簿；照片右滑时存入这里。
     private(set) var defaultAlbumID: String?
     private(set) var defaultAlbumTitle: String = "未选择"
@@ -69,6 +76,8 @@ final class AppSettings {
         self.highContrast = defaults.bool(forKey: Keys.highContrast)
         self.reduceMotion = defaults.bool(forKey: Keys.reduceMotion)
         self.soundEnabled = defaults.object(forKey: Keys.soundEnabled) as? Bool ?? true
+        self.destroyMachine = defaults.string(forKey: Keys.destroyMachine)
+            .flatMap(MachineKind.init(rawValue:)) ?? .wasteBasket
         self.defaultAlbumID = defaults.string(forKey: Keys.defaultAlbumID)
         self.defaultAlbumTitle = defaults.string(forKey: Keys.defaultAlbumTitle) ?? "未选择"
     }

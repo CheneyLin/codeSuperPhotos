@@ -120,8 +120,8 @@ struct VIPView: View {
         switch feature {
         case .vaultAllMediaTypes: "静态图片"
         case .vaultUnlimitedCapacity: "60 件 · 2GB"
-        case .statsAdvanced: "今日 · 本周 · 累计"
-        case .extraMachines: "壁炉 · 碎纸机"
+        case .statsAdvanced: "今日 · 本周 · 累计 + 五款道具分布"
+        case .extraMachines: "五款道具均可切换"
         case .dialSkins: "基础外观"
         }
     }
@@ -130,9 +130,9 @@ struct VIPView: View {
         switch feature {
         case .vaultAllMediaTypes: "全部媒体类型"
         case .vaultUnlimitedCapacity: "不限件数与空间"
-        case .statsAdvanced: "增加本月与方式偏好"
+        case .statsAdvanced: "增加本月与趋势报告（二期）"
         case .extraMachines: "更多玩法（二期）"
-        case .dialSkins: "全部皮肤与音效（二期）"
+        case .dialSkins: "全部皮肤与扩展音效（二期）"
         }
     }
 

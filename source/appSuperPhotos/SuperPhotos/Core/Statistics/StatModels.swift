@@ -22,8 +22,13 @@ final class DayStat {
     var bytesUnknown: Int
     var imported: Int
     var restored: Int
+    /// 按道具分的销毁件数。fireplace / shredder 是旧字段，保留原列名不迁移历史数据；
+    /// 后三款是新增道具，给默认值以便 SwiftData 轻量迁移。
     var fireplace: Int
     var shredder: Int
+    var wasteBasket: Int = 0
+    var mailbox: Int = 0
+    var anyDoor: Int = 0
 
     init(
         granularity: StatGranularity,
@@ -36,7 +41,10 @@ final class DayStat {
         imported: Int = 0,
         restored: Int = 0,
         fireplace: Int = 0,
-        shredder: Int = 0
+        shredder: Int = 0,
+        wasteBasket: Int = 0,
+        mailbox: Int = 0,
+        anyDoor: Int = 0
     ) {
         self.granularityRaw = granularity.rawValue
         self.dayStart = dayStart
@@ -49,10 +57,34 @@ final class DayStat {
         self.restored = restored
         self.fireplace = fireplace
         self.shredder = shredder
+        self.wasteBasket = wasteBasket
+        self.mailbox = mailbox
+        self.anyDoor = anyDoor
     }
 
     var granularity: StatGranularity {
         StatGranularity(rawValue: granularityRaw) ?? .day
+    }
+
+    /// 五款道具计数读写的唯一入口，避免每个调用点都写一遍 switch。
+    func count(for machine: MachineKind) -> Int {
+        switch machine {
+        case .wasteBasket: wasteBasket
+        case .shredder: shredder
+        case .fireplace: fireplace
+        case .mailbox: mailbox
+        case .anyDoor: anyDoor
+        }
+    }
+
+    func increment(_ machine: MachineKind, by count: Int) {
+        switch machine {
+        case .wasteBasket: wasteBasket += count
+        case .shredder: shredder += count
+        case .fireplace: fireplace += count
+        case .mailbox: mailbox += count
+        case .anyDoor: anyDoor += count
+        }
     }
 
     func add(_ other: DayStat) {
@@ -64,6 +96,9 @@ final class DayStat {
         restored += other.restored
         fireplace += other.fireplace
         shredder += other.shredder
+        wasteBasket += other.wasteBasket
+        mailbox += other.mailbox
+        anyDoor += other.anyDoor
     }
 
     static func makeKey(granularity: StatGranularity, date: Date) -> String {
@@ -111,6 +146,9 @@ struct StatSummary: Equatable, Sendable {
     var restored = 0
     var fireplace = 0
     var shredder = 0
+    var wasteBasket = 0
+    var mailbox = 0
+    var anyDoor = 0
 
     var isEmpty: Bool {
         browsed == 0 && destroyed == 0 && imported == 0 && restored == 0
@@ -118,6 +156,24 @@ struct StatSummary: Equatable, Sendable {
 
     var readableDestroyedBytes: String {
         destroyedBytes > 0 ? VaultLimits.readableBytes(destroyedBytes) : "—"
+    }
+
+    /// 五款道具的件数，顺序与 MachineKind.allCases 一致。
+    func count(for machine: MachineKind) -> Int {
+        switch machine {
+        case .wasteBasket: wasteBasket
+        case .shredder: shredder
+        case .fireplace: fireplace
+        case .mailbox: mailbox
+        case .anyDoor: anyDoor
+        }
+    }
+
+    /// 用得最多的道具；全部为 0 时返回 nil。
+    var topMachine: MachineKind? {
+        let ranked = MachineKind.allCases.sorted { count(for: $0) > count(for: $1) }
+        guard let first = ranked.first, count(for: first) > 0 else { return nil }
+        return first
     }
 
     mutating func merge(_ row: DayStat) {
@@ -129,6 +185,9 @@ struct StatSummary: Equatable, Sendable {
         restored += row.restored
         fireplace += row.fireplace
         shredder += row.shredder
+        wasteBasket += row.wasteBasket
+        mailbox += row.mailbox
+        anyDoor += row.anyDoor
     }
 }
 

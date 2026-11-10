@@ -57,6 +57,7 @@ struct SettingsView: View {
         NavigationStack(path: $path) {
             Form {
                 appearanceSection
+                deviceSection
                 statisticsSection
                 taskSection
                 snoozeSection
@@ -176,6 +177,21 @@ struct SettingsView: View {
         Binding(get: { settings.soundEnabled }, set: { settings.soundEnabled = $0 })
     }
 
+    // MARK: - 销毁道具
+
+    /// 底部道具的直选入口，与首页「轻点循环切换」共用 AppSettings.destroyMachine。
+    private var deviceSection: some View {
+        Section {
+            DevicePickerStrip(selection: settings.destroyMachine) { machine in
+                settings.destroyMachine = machine
+            }
+        } header: {
+            Text("销毁道具")
+        } footer: {
+            Text("桌面底部可轻点道具按顺序循环切换：废纸篓 → 碎纸机 → 壁炉 → 邮筒 → 任意门。每款道具都有独立的落入动效与音效，选择会保留到下次启动；统计按当时选中的道具分别计数。")
+        }
+    }
+
     // MARK: - 统计
 
     private var taskSection: some View {
@@ -196,20 +212,41 @@ struct SettingsView: View {
         }
     }
 
+    private var todaySummary: StatSummary {
+        statistics.summary(for: .today)
+    }
+
+    /// 今日各道具件数的紧凑摘要；零计数不展示，避免出现一长串 0。
+    private var todayDeviceLine: String {
+        let parts = MachineKind.allCases
+            .filter { todaySummary.count(for: $0) > 0 }
+            .map { "\($0.displayName) \(todaySummary.count(for: $0))" }
+        return parts.isEmpty ? "今日暂无销毁记录" : parts.joined(separator: " · ")
+    }
+
     private var statisticsSection: some View {
         Section {
             NavigationLink(value: SettingsRoute.statistics) {
-                HStack {
-                    Text("整理统计")
-                    Spacer()
-                    Text("今日 \(statistics.summary(for: .today).destroyed) 件")
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack {
+                        Text("整理统计")
+                        Spacer()
+                        Text("今日 \(todaySummary.destroyed) 件")
+                            .foregroundStyle(.secondary)
+                    }
+                    DeviceDistributionBar(summary: todaySummary, height: 7)
+                    Text(todayDeviceLine)
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.tertiary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
                 }
+                .padding(.vertical, 2)
             }
         } header: {
             Text("统计")
         } footer: {
-            Text("免费版提供今日、本周与累计；本月与方式偏好属于 VIP 权益。")
+            Text("免费版提供今日、本周、累计，以及五款道具各自的件数与占比；本月周期属于 VIP 权益。")
         }
     }
 

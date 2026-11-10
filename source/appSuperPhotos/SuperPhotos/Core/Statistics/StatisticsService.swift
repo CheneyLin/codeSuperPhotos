@@ -55,10 +55,7 @@ final class StatisticsService {
         row.destroyed += count
         row.destroyedBytes += max(sample.bytes, 0)
         row.bytesUnknown += max(sample.unknownCount, 0)
-        switch machine {
-        case .fireplace: row.fireplace += count
-        case .shredder: row.shredder += count
-        }
+        row.increment(machine, by: count)
         save()
     }
 
@@ -320,18 +317,19 @@ extension StatisticsService {
         applySample(
             dayStart: today,
             browsed: 5, destroyed: 3, bytes: 30 * mb, unknown: 1,
-            imported: 2, restored: 1, fireplace: 2, shredder: 1
+            imported: 2, restored: 1, fireplace: 1, shredder: 1, wasteBasket: 1
         )
         applySample(
             dayStart: today,
             browsed: 3, destroyed: 2, bytes: 20 * mb, unknown: 0,
-            imported: 0, restored: 0, fireplace: 0, shredder: 2
+            imported: 0, restored: 0, shredder: 1, mailbox: 1
         )
         if let old = calendar.date(byAdding: .day, value: -100, to: today) {
             applySample(
                 dayStart: old,
                 browsed: 0, destroyed: 4, bytes: 10 * mb, unknown: 2,
-                imported: 1, restored: 0, fireplace: 1, shredder: 3
+                imported: 1, restored: 0, fireplace: 1, shredder: 1,
+                mailbox: 1, anyDoor: 1
             )
         }
         compactIfNeeded()
@@ -361,8 +359,11 @@ extension StatisticsService {
         unknown: Int,
         imported: Int,
         restored: Int,
-        fireplace: Int,
-        shredder: Int
+        fireplace: Int = 0,
+        shredder: Int = 0,
+        wasteBasket: Int = 0,
+        mailbox: Int = 0,
+        anyDoor: Int = 0
     ) {
         let row = dayRow(for: dayStart)
         row.browsed += browsed
@@ -373,6 +374,9 @@ extension StatisticsService {
         row.restored += restored
         row.fireplace += fireplace
         row.shredder += shredder
+        row.wasteBasket += wasteBasket
+        row.mailbox += mailbox
+        row.anyDoor += anyDoor
         save()
     }
 }

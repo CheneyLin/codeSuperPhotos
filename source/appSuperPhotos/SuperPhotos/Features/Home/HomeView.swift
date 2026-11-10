@@ -62,8 +62,10 @@ struct HomeView: View {
     @State private var destroy = DestroyCoordinator()
     /// 程序化触发一次“下滑入待销毁”（UI 测试与无障碍路径使用）。
     @State private var discardRequest = 0
-    /// 照片落入纸篓时自增：纸篓左右晃动一次，并播放揉纸声。
+    /// 照片落入底部道具时自增：按当前道具播放一次专属动效与音效。
     @State private var binShakeToken = 0
+    /// 点击底部道具循环切换时自增：驱动切换弹跳与名称牌。
+    @State private var deviceSwitchToken = 0
     /// UI 测试用：自增触发一次舞台轻点。
     @State private var tapRequest = 0
     /// UI 测试用：自增触发一次左/右滑飞出（与手势同一条路径）。
@@ -256,6 +258,18 @@ struct HomeView: View {
             }
             // 顶部整行改为 152pt 后，Toast 要落在它下方，不能压住 LCD 读数。
             .toast($toastMessage, topPadding: LCDSpec.rowHeight + 10)
+            // 冷启动恢复上次选中的销毁道具；设置页与首页共用 AppSettings 这一份。
+            .onAppear {
+                destroy.switchMachine(settings.destroyMachine)
+            }
+            // 设置页直接选道具后回首页要同步；首页自己切换时两者已相等，直接跳过，
+            // 避免弹跳动效播两次。
+            .onChange(of: settings.destroyMachine) { _, newValue in
+                guard newValue != destroy.machine else { return }
+                if destroy.switchMachine(newValue) {
+                    deviceSwitchToken += 1
+                }
+            }
         }
         // 单屏工作区的固定高度元素较多，限制在非无障碍字号内避免遮挡；
         // 设置、统计、引导等阅读页仍完整支持 AX 字号。
@@ -722,10 +736,25 @@ struct HomeView: View {
         DestroyDock(
             pendingCount: task.destroyCount,
             shakeToken: binShakeToken,
+            machine: destroy.machine,
+            switchToken: deviceSwitchToken,
+            onSwitch: { cycleDestroyMachine() },
             bottomInset: max(0, bottomSafeInset - 8)
         )
-        // 只下移纸篓本体：布局位置不变，照片区与台面起算点也不变。
+        // 只下移道具本体：布局位置不变，照片区与台面起算点也不变。
         .offset(y: effectiveDockDrop)
+    }
+
+    /// 轻点底部道具：按 MachineKind.allCases 顺序循环切换并持久化。
+    /// 结算执行中或销毁流程忙碌时不切换，避免统计口径与界面显示分叉。
+    private func cycleDestroyMachine() {
+        guard !isExecutingTaskEnd, !destroy.phase.isBusy else { return }
+        let next = destroy.machine.next
+        guard destroy.switchMachine(next) else { return }
+        settings.destroyMachine = next
+        deviceSwitchToken += 1
+        sound.play(.deviceSwitch)
+        showLCDNotice("已切换为「\(next.displayName)」")
     }
 
     /// 纸篓下移量：满额 `dockDrop`，但短屏 / iPad 上按屏底余量收敛。
@@ -1384,9 +1413,9 @@ struct HomeView: View {
         guard task.isActive, !isExecutingTaskEnd else { return }
         guard task.items.contains(where: { $0.id == id }) else { return }
 
-        // 照片落进纸篓：纸篓左右晃动一次，并播放揉纸声。
+        // 照片落入当前道具：播放它的专属动效与音效。
         binShakeToken += 1
-        sound.play(.paperCrunch)
+        sound.play(device: destroy.machine)
 
         let nextID = idAfterRemoving(id)
         task.record(id: id, decision: .destroy)
@@ -1612,10 +1641,15 @@ struct HomeView: View {
             return
         }
         #endif
-        if environment["UI_TEST_MACHINE"] == "shredder" {
+        // UI_TEST_MACHINE 接受五款道具的 rawValue（bin_waste / shredder /
+        // fireplace / mailbox / any_door）；旧的 "shredder" 仍然有效。
+        if let requested = environment["UI_TEST_MACHINE"].flatMap(MachineKind.init(rawValue:)) {
             try? await Task.sleep(for: .milliseconds(600))
             ensureUITestTask()
-            destroy.switchMachine(.shredder)
+            if destroy.switchMachine(requested) {
+                settings.destroyMachine = requested
+                deviceSwitchToken += 1
+            }
             return
         }
 

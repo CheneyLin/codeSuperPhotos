@@ -296,6 +296,8 @@ final class DestroyCoordinator {
 
 ### 4.6 机器动效
 
+> 2026-11-10 更新：本节是早期「壁炉 / 碎纸机内凹机器口」方案，首页现行实现是五款可切换道具（含各自的落入动效、常驻粒子与音效），见 `docs/device-dock-upgrade.md`。下表保留作粒子与暖光的技术参考。
+
 | 内容 | 方案 |
 | --- | --- |
 | 炉膛暖光 | `RadialGradient` + `TimelineView(.animation)` 驱动透明度与位移 |
