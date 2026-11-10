@@ -81,6 +81,14 @@ struct HomeView: View {
     @State private var keySwayToken = 0
     @State private var hasPlayedKeySway = false
 
+    /// 三栏工作区（顶部 LCD 行与底部纸篓之间的「中间区」）高度倍率。
+    ///
+    /// 1.44 = 在「内容顶 → 台面 / 纸篓上沿」的基准行高上累计放大 44%：
+    /// 先在 1.2 基础上再 +20%（1.2 × 1.2）。顶边与 LCD 整行的相对位置不变，
+    /// 台面线、纸篓锚点、背景都不动；三栏（照片堆叠、保险箱门、收藏夹滚轮）
+    /// 按新行高重算居中落点。想调回原高度把这里改回 1 即可，其它计算无需同步修改。
+    private static let workspaceHeightScale: CGFloat = 1.44
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -246,7 +254,8 @@ struct HomeView: View {
                 guard !Task.isCancelled else { return }
                 statistics.recordBrowse(id: id)
             }
-            .toast($toastMessage, topPadding: 64)
+            // 顶部整行改为 152pt 后，Toast 要落在它下方，不能压住 LCD 读数。
+            .toast($toastMessage, topPadding: LCDSpec.rowHeight + 10)
         }
         // 单屏工作区的固定高度元素较多，限制在非无障碍字号内避免遮挡；
         // 设置、统计、引导等阅读页仍完整支持 AX 字号。
@@ -256,44 +265,125 @@ struct HomeView: View {
 
     // MARK: - 顶部
 
+    /// 顶部整行三段：左按钮区 / LCD / 右按钮区。
+    ///
+    /// 屏体收到 240 宽后两侧各约 68pt，足够放 64pt 的圆形操作按钮；
+    /// 左右区等宽弹性分配，LCD 因而始终精确居中，不依赖硬编码的屏幕宽度。
+    /// 整行进 `safeAreaInset(edge: .top)`，高度固定为 `LCDSpec.rowHeight`，
+    /// 桌面态与处理态只是替换左右按钮的内容，行高与三栏落点都不跳。
     private var headerBar: some View {
-        // 洞洞板上的两个悬挂道具：左钥匙进保险箱，右螺丝刀进设置。
-        // 机器类型选择器已按设计稿移除，后续改由底部纸篓区左右滑动切换。
-        HStack(alignment: .top, spacing: 0) {
+        let total = windowSize.width
+        let padding = LCDSpec.headerPadding
+        // 极窄宽度下先保住两侧 64pt 命中区，再收缩 LCD，避免按钮被挤出屏幕。
+        let lcdWidth = min(
+            LCDSpec.displayWidth,
+            max(0, total - 2 * padding - 2 * LCDSpec.sideButtonWidth)
+        )
+        let lcdHeight = lcdWidth * LCDSpec.imageAspect
+
+        // 挂件有挂钩，必须贴行顶悬挂；处理态的圆按钮没有挂钩，
+        // 按 LCD 屏面高度垂直居中，才不会飘在挂环那一层。
+        let buttonAlignment: Alignment = showsStage ? .center : .top
+
+        return HStack(alignment: .top, spacing: 0) {
+            headerLeftButton
+                .frame(maxWidth: .infinity, minHeight: lcdHeight, alignment: buttonAlignment)
+
+            // LCD 是唯一固定宽的元素，两侧弹性区被它推成等宽。
+            headerLCD(width: lcdWidth, height: lcdHeight)
+
+            headerRightButton
+                .frame(maxWidth: .infinity, minHeight: lcdHeight, alignment: buttonAlignment)
+        }
+        .frame(height: LCDSpec.rowHeight, alignment: .top)
+        .padding(.horizontal, padding)
+        .padding(.top, 2)
+        // DEBUG 长按顶栏空白处开关命中调试；放在 background 不参与布局，
+        // 也不会像 Spacer / Color 那样在 safeAreaInset 里把顶栏撑成整屏高。
+        .background { hitDebugToggleArea }
+    }
+
+    /// 左上角按钮区：桌面态是保险箱钥匙，处理态换成回退（撤销上一步）。
+    @ViewBuilder
+    private var headerLeftButton: some View {
+        if showsStage {
+            PegboardActionButton(
+                assetName: "icon_undo",
+                accessibilityTitle: "撤销上一步",
+                accessibilityHintText: "把最近一次决定退回舞台，并恢复对应的待销毁或待加密计数",
+                isEnabled: task.canUndo && !isExecutingTaskEnd
+            ) {
+                undoLastStep()
+            }
+        } else {
             PegboardHookButton(
                 assetName: "icon_vault_keys",
                 title: "私密保险箱，已存 \(vault.records.count) 件",
-                swayToken: keySwayToken,
-                isEnabled: !showsStage
+                swayToken: keySwayToken
             ) {
                 openVaultPreview()
             }
+            .offset(x:8,y:8)
+        }
+    }
 
-            hitDebugToggleArea
-
+    /// 右上角按钮区：桌面态是螺丝刀进设置，处理态换成提前结束并结算。
+    @ViewBuilder
+    private var headerRightButton: some View {
+        if showsStage {
+            PegboardActionButton(
+                assetName: "icon_stop",
+                accessibilityTitle: "结束并结算",
+                accessibilityHintText: "未处理的照片按保留处理，随后进入结算",
+                isEnabled: !isExecutingTaskEnd && !task.isFinished
+            ) {
+                finishTaskNow()
+            }
+        } else {
             PegboardHookButton(
                 assetName: "icon_tool_screwdriver",
                 title: "设置",
-                iconSize: 50,
-                isEnabled: !showsStage
+                iconSize: 50
             ) {
                 isSettingsPresented = true
             }
         }
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.top, 2)
     }
 
-    /// 顶栏中间的空白（就是原来的 Spacer 位置）：DEBUG 下长按 2 秒开关命中调试。
-    ///
-    /// 必须是「横向弹性、纵向定高」的占位。`Color` 这类双向弹性视图放进
-    /// `safeAreaInset(edge: .top)` 会接受整屏高度，把顶栏撑满屏幕，下面的
-    /// 三栏工作区、背景、纸篓全被挤出可视区。
+    /// 顶栏中央的液晶屏：桌面态静置物料图，处理态显示进度并作为暂停入口。
+    /// 未授权时保留等尺寸占位，避免在权限引导页挂一块进度屏、又不让两侧按钮位移。
+    private func headerLCD(width: CGFloat, height: CGFloat) -> some View {
+        Group {
+            if library.accessState.canBrowse {
+                LCDScreen(
+                    mode: showsStage
+                        ? .progress(
+                            pendingDelete: task.destroyCount,
+                            processed: task.processedCount,
+                            total: task.totalCount
+                        )
+                        : .idle,
+                    notice: lcdNotice,
+                    isPauseEnabled: showsStage && !isExecutingTaskEnd && !task.isFinished,
+                    onPause: { pauseTask() }
+                )
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: width, height: height)
+        .offset(x:0,y:4)
+        .hitDebugRegion("液晶屏")
+    }
+
+    /// DEBUG 下长按顶栏空白 2 秒开关命中调试；Release 不编译手势。
     @ViewBuilder
     private var hitDebugToggleArea: some View {
         #if DEBUG
-        Spacer(minLength: 0)
-            .frame(height: 56)
+        Color.clear
+            // 显式定高：safeAreaInset 里的弹性视图会接受整屏高度，
+            // 把顶栏撑满、把下面的工作区挤出可视区。
+            .frame(height: LCDSpec.rowHeight)
             .contentShape(Rectangle())
             .onLongPressGesture(minimumDuration: 2) {
                 let enabled = hitDebugToggle()
@@ -303,7 +393,7 @@ struct HomeView: View {
                 )
             }
         #else
-        Spacer(minLength: 0)
+        EmptyView()
         #endif
     }
 
@@ -356,15 +446,19 @@ struct HomeView: View {
             // 行高显式给出，不再让内层 GeometryReader 反推：
             // GeometryReader 的最小高度是 0，一旦外层建议高度异常就会被压成 0，
             // 三栏（尤其被 clipped 的中栏）会整块消失。
-            // 液晶屏独占一行，先扣掉它的固定占位；占位与切态无关，桌面 / 处理中完全一致。
-            let rowHeight = max(0, contentBottom - bannerHeight - LCDSpec.rowHeight)
-            // 屏体比占位更高：可见屏面向上吃到挂板区，透明留白不接收点击，
-            // 所以既不会压住顶栏挂件 / 提示条，也不会往三栏行里多推。
-            let lcdWidth = min(LCDSpec.displayWidth, max(0, rowW - Theme.Spacing.page * 2))
-            let lcdHeight = lcdWidth * LCDSpec.imageAspect
-            // 以「可见边框底」为锚：底边距行尾 4pt，与占位无关地保证三栏落点不动。
-            let lcdVisibleBottom = LCDSpec.rowHeight - LCDSpec.rowBottomGap
-            let lcdYOffset = min(0, lcdVisibleBottom - lcdHeight * (1 - LCDSpec.visibleBottomRatio))
+            // 顶部三段（左按钮 / LCD / 右按钮）已整体移入 safeAreaInset，
+            // 这里不再单独扣 LCD 行；占位与切态无关，桌面 / 处理中完全一致。
+            // 「中间区」按 workspaceHeightScale 放大：多出来的部分全部向下延伸，
+            // 由下方 padding 让出同样高度，保证行顶仍贴在 LCD 行下沿、不向上溢出。
+            let baseRowHeight = max(0, contentBottom - bannerHeight)
+            // 增量不许超过「内容底 → 容器底」的余量：否则 VStack 会比容器还高，
+            // 行顶被顶到 LCD 行上方（倍率继续调大或极短屏时尤其容易触发）。
+            let availableDrop = max(0, size.height - contentBottom)
+            let extraRowHeight = min(
+                baseRowHeight * (Self.workspaceHeightScale - 1),
+                availableDrop
+            )
+            let rowHeight = baseRowHeight + extraRowHeight
 
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -384,9 +478,6 @@ struct HomeView: View {
                         }
                     }
 
-                    // 顶部独立一行：只有液晶屏，占位固定；屏体向上长到挂板区。
-                    lcdRow(width: lcdWidth, height: lcdHeight, yOffset: lcdYOffset)
-
                     HStack(alignment: .top, spacing: columnGap) {
                         VaultDoorColumn(
                             width: sideWidth,
@@ -399,7 +490,7 @@ struct HomeView: View {
                         // 左侧 25% 必须真的在屏幕外，箱体左缘贴住屏幕左缘（0 边距）。
 
                         // 中栏：舞台与桌面共用一条中线，和左右栏（整行居中）同一套落点规则。
-                        // 液晶屏已上移到独立一行，不再压在中栏顶部。
+                        // 液晶屏已在顶栏三段里，不再压在中栏顶部。
                         ZStack {
                             if showsStage {
                                 stageSection(vaultDropOffset: vaultDropOffset(in: proxy, sideWidth: sideWidth))
@@ -449,17 +540,13 @@ struct HomeView: View {
                     .padding(.trailing, 2)
                     // 行高锁死为显式值，三栏谁都不能把它撑大。
                     .frame(width: rowW, height: rowHeight, alignment: .top)
-                    // 撤销 / 结束：挂在三栏行顶部、屏体下方，左右与顶栏挂件同心。
-                    // 屏体放大后横向不再有并排空间，收进这一层浮层，不占行高。
-                    .overlay(alignment: .top) {
-                        if showsStage && !isAlbumsDrawerPresented && !isVaultDrawerPresented {
-                            taskActionRow
-                        }
-                    }
+                    // 撤销 / 结束已上移到顶栏左右按钮区，三栏行顶部不再挂浮层。
                     // 舞台要接住抽屉带来的缩放与失焦；两侧实体不参与缩放。
                     .allowsHitTesting(!isAlbumsDrawerPresented && !isVaultDrawerPresented)
                 }
-                .padding(.bottom, max(0, size.height - contentBottom))
+                // 基准底边是 contentBottom；减去放大出来的 extraRowHeight，
+                // 让中间区向下长 20%，而不是把行顶顶到 LCD 行上方。
+                .padding(.bottom, max(0, size.height - contentBottom - extraRowHeight))
 
                 dockSection
                     .background {
@@ -500,66 +587,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 液晶屏行
-
-    /// 顶部独立一行：屏体居中，占位固定为 `LCDSpec.rowHeight`。
-    ///
-    /// 屏体渲染高比占位高，靠 `yOffset` 向上溢出到挂板区；
-    /// 行的占位高度在桌面态 / 处理态完全一致，三栏行不位移。
-    private func lcdRow(width: CGFloat, height: CGFloat, yOffset: CGFloat) -> some View {
-        Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: LCDSpec.rowHeight)
-            .overlay(alignment: .top) {
-                LCDScreen(
-                    mode: showsStage
-                        ? .progress(
-                            pendingDelete: task.destroyCount,
-                            processed: task.processedCount,
-                            total: task.totalCount
-                        )
-                        : .idle,
-                    notice: lcdNotice,
-                    isPauseEnabled: showsStage && !isExecutingTaskEnd && !task.isFinished,
-                    onPause: { pauseTask() }
-                )
-                .frame(width: width, height: height)
-                .offset(y: yOffset)
-            }
-            .hitDebugRegion("液晶屏行")
-    }
-
-    /// undo / finish：三栏行顶部浮层，左对齐在印章钥匙下方，右对齐在螺丝刀下方。
-    /// 只占一条 64pt 高的浮层，不参与三栏排版，也不侵入中栏手势区。
-    private var taskActionRow: some View {
-        HStack(spacing: 0) {
-            PegboardActionButton(
-                assetName: "icon_undo",
-                accessibilityTitle: "撤销上一步",
-                accessibilityHintText: "把最近一次决定退回舞台，并恢复对应的待销毁或待加密计数",
-                isEnabled: task.canUndo && !isExecutingTaskEnd
-            ) {
-                undoLastStep()
-            }
-
-            Spacer(minLength: 0)
-
-            PegboardActionButton(
-                assetName: "icon_stop",
-                accessibilityTitle: "结束并结算",
-                accessibilityHintText: "未处理的照片按保留处理，随后进入结算",
-                isEnabled: !isExecutingTaskEnd && !task.isFinished
-            ) {
-                finishTaskNow()
-            }
-        }
-        // 与顶栏挂件同心：60pt 图标放在 64pt 按钮框里，
-        // 左 13 / 右 11 让两个框的中心落在 43 与「宽 − 43」。
-        .padding(.leading, Theme.Spacing.md + 1)
-        .padding(.trailing, Theme.Spacing.md - 1)
-        // 屏体底边（含透明留白）在行尾上方 4pt，这里再留 6pt。
-        .padding(.top, 6)
-    }
+    // MARK: - 三栏计算
 
     /// 三栏宽度的唯一来源：两侧按行宽 20% 取、收藏夹比保险箱宽 10pt，
     /// 中栏吃掉剩余；剩余不足 120pt 时按比例收缩两侧，避免中栏被算成 0。

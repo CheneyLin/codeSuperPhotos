@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "icon_paper_cutter.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
@@ -9,7 +10,6 @@
       "scale" : "2x"
     },
     {
-      "filename" : "icon_bin_waste.png",
       "idiom" : "universal",
       "scale" : "3x"
     }

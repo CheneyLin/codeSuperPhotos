@@ -29,7 +29,13 @@ struct LayoutProbe: Equatable {
 struct LayoutProbeKey: PreferenceKey {
     static let defaultValue = LayoutProbe()
     static func reduce(value: inout LayoutProbe, nextValue: () -> LayoutProbe) {
-        value = nextValue()
+        // SwiftUI 会把「没有显式上报该 key」的兄弟分支也按 defaultValue（全 0）参与 reduce。
+        // 早期实现无条件 `value = nextValue()`，真实探针被最后合并进来的默认值清成 0，
+        // 真机 HUD 因此显示 rowW/rowH 全 0，而 HitDebugRegionKey（字典 merge）正常。
+        // 只接受有效上报：HomeView 每次都会给出正的 rowW。
+        let next = nextValue()
+        guard next.rowW > 0 else { return }
+        value = next
     }
 }
 

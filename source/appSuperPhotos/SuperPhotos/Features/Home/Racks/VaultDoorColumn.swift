@@ -34,10 +34,10 @@ struct VaultDoorColumn: View {
             let size = Self.iconSize(for: width)
             // 图标中心落在屏幕坐标 0.25×边长处：左边缘正好有 25% 在屏幕外。
             let originX = proxy.frame(in: .global).minX
-            let centerX = 0.25 * size - originX
+            let centerX = -0.45 * size - originX
 
             Button(action: onTap) {
-                vaultIcon(size: size)
+                vaultIcon(size: size*3)
             }
             .buttonStyle(.plain)
             .frame(width: size, height: size)
@@ -66,7 +66,7 @@ struct VaultDoorColumn: View {
                 .opacity(isOpen ? 1 : 0)
                 .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: isOpen)
 
-            Image("icon_vault")
+            Image("vault")
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)

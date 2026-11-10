@@ -25,7 +25,7 @@ struct PegboardHookButton: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: -1) {
-                hook
+                //hook
 
                 Image(assetName)
                     .resizable()

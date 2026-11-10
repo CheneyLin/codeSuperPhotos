@@ -8,19 +8,30 @@ enum LCDSpec {
     /// 读数排版基准宽：旧版 1:1 屏宽 162（486px ÷ 3）。
     /// 屏内字号 / 字距 / 条高都按「实际屏宽 ÷ 162」等比放大。
     static let baseWidth: CGFloat = 162
-    /// 目标宽：基准的 185%（162 × 1.852 ≈ 300）。
-    /// 最窄验收宽度 393 上左右仍各留 46.5pt，不会被屏幕边缘切到。
-    static let displayWidth: CGFloat = 300
-    /// 物料原始比例（720 × 421）。
+    /// 目标宽 240：顶部整行改成「左按钮区 / LCD / 右按钮区」三段后，
+    /// 393 宽屏上还剩 153pt 给两侧，各约 68pt，正好放得下 64pt 的圆形操作按钮。
+    /// 300 宽时两侧只剩 46.5pt，放不下按钮，所以收到 240。
+    static let displayWidth: CGFloat = 260
+    /// 左右按钮区的最小宽度：与 `PegboardActionButton` 的 64pt 命中框一致。
+    /// 两侧区等宽弹性分配，LCD 因此始终精确居中。
+    static let sideButtonWidth: CGFloat = 64
+    /// 顶部整行的左右外边距。8pt 时 393 宽屏按钮中心落在约 42pt，
+    /// 与旧版挂件的 43pt 基本同轴。
+    static let headerPadding: CGFloat = 8
+    /// 物料原始「高 / 宽」比例（720 × 421 → 0.5847），只用来由宽度反推高度。
+    ///
+    /// 注意方向：SwiftUI 的 `aspectRatio(_:contentMode:)` 参数是「宽 / 高」。
+    /// 曾把本值直接传进去，屏体被约束成 0.5847 的竖向比例，300pt 宽只剩约 102pt，
+    /// 且玻璃区、读数一起跟着变形。渲染统一改用 `.scaledToFit()` 读图片自身比例，
+    /// 常量只服务于布局计算，不再参与图片约束。
     static let imageAspect: CGFloat = 421.0 / 720.0
-    /// 物料在目标宽下的渲染高度（300 × 0.5847 ≈ 175.4）。
+    /// 物料在目标宽下的渲染高度（240 × 0.5847 ≈ 140.3）。
     static var displayHeight: CGFloat { displayWidth * imageAspect }
 
-    /// 独立一行的占位高度：沿用上一版（243 宽时图高 142 + 8pt 间隙）。
-    /// 本次放大只向上溢出，占位不变，三栏行的上沿与行高都不动。
+    /// 顶部整行的固定占位高度：沿用 150，屏体 140.3pt 贴在行顶，
+    /// 底部约 9.7pt 透明留白隔开三栏行。整行进 `safeAreaInset`，
+    /// 三栏行不再单独扣这一行，切换桌面 / 处理态时行高完全不跳。
     static let rowHeight: CGFloat = 150
-    /// 可见屏面底边距行尾 4pt；透明留白不算，避免把屏体往三栏行里多推 18pt。
-    static let rowBottomGap: CGFloat = 4
 
     /// 物料上下透明留白的比例（可见区 y 31…377，总高 421）。
     /// 定位按「可见边框」算、命中区也裁掉留白：放大的屏体可以吃掉挂板区空白，
@@ -160,8 +171,10 @@ struct LCDScreen: View {
     private var panel: some View {
         Image(assetName)
             .resizable()
-            // 等比完整显示：不拉伸、不裁切，外框与挂耳都是图片的一部分。
-            .aspectRatio(LCDSpec.imageAspect, contentMode: .fit)
+            // 等比完整显示：直接取图片自身的宽高比（720:421），不拉伸、不裁切。
+            // 外框与挂耳都是图片的一部分；不要用 aspectRatio(LCDSpec.imageAspect)，
+            // 那个常量是「高/宽」，传进去会把屏体压成竖条。
+            .scaledToFit()
             // 命中区只覆盖可见屏面：上下透明留白不接收点击，放大的屏体不会
             // 借透明像素挡住顶栏、提示条或三栏行。
             .contentShape(VisibleScreenShape(

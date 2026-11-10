@@ -182,8 +182,9 @@ plutil -p <DerivedData>/Build/Products/Debug-iphoneos/appSuperPhotos.app/Info.pl
 
 1. 把 `HomeView.taskWorkspace` 的三栏公式在 320–1024pt 做回归，确认折叠 / 展开时
    任务快照、当前照片 id、坞状态、收藏夹选中项与滚轮位置不丢（product-plan 4.5）。
-2. 用 `DuoLayoutMetrics.intersectsHinge` 校验 LCD、undo / finish、纸篓、顶栏挂件
-   不落在铰链缝上；必要时按 `splitRects` 给书本姿态切左右 / 上下两区。
+2. 用 `DuoLayoutMetrics.intersectsHinge` 校验顶部整行三段（左按钮区 / LCD / 右按钮区）、
+   纸篓不落在铰链缝上；必要时按 `splitRects` 给书本姿态切左右 / 上下两区。
+   注意回退 / 提前结束已在顶栏左右按钮区，不再是三栏行顶部的独立浮层。
 3. 内屏横屏 / 书本横屏的双栏容器（参考项目矩阵：左右 50/50，无带时平分）。
 4. 舞台卡片与销毁坞遵守 `stageMaxWidth = 640` 居中；铰链带两侧留 8pt。
 5. 真机全姿态验收：外屏竖 / 外屏横 / 内屏竖 / 内屏横 / 书本横 / 书本竖，
