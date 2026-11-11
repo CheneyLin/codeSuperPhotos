@@ -54,8 +54,8 @@ struct FavoriteAlbumColumn: View {
         /// 徽章相对图标右上角的外扩比例（随图标等比缩放）。
         static let badgeOffsetXRatio: CGFloat = 0.10
         static let badgeOffsetYRatio: CGFloat = 0.085
-        /// 选中瞬间放大的峰值倍数，动画结束回到 1（保持统一大小）。
-        static let selectionPop: CGFloat = 1.14
+        /// 选中项常驻放大的倍数（不再做脉冲回弹，静息即保持放大）。
+        static let selectedScale: CGFloat = 1.2
     }
 
     /// 同一套行数贯穿：行高、渲染窗口、拖拽吸附与点按换算全部共用。
@@ -86,8 +86,6 @@ struct FavoriteAlbumColumn: View {
     @State private var wheelPosition: CGFloat = 0
     @State private var dragStartPosition: CGFloat?
     @State private var isDragging = false
-    /// 每次落定自增，驱动选中项「放大一下」的回弹动效。
-    @State private var selectionPulseToken = 0
 
     var body: some View {
         // 延后入口已移到设置页：这里只剩滚轮本体，滚轮中心与左右栏同一套整行居中。
@@ -230,8 +228,6 @@ struct FavoriteAlbumColumn: View {
                     }
                 }
                 commitSelection(at: Int(target))
-                // 落定即回弹一次；震动仍由外部 selectDefaultAlbum 触发。
-                selectionPulseToken += 1
             }
     }
 
@@ -240,6 +236,9 @@ struct FavoriteAlbumColumn: View {
     private func row(_ album: AlbumItem, rowHeight: CGFloat) -> some View {
         let isSelected = album.id == selectedAlbumID
         let icon = iconSize(rowHeight: rowHeight)
+        // 选中项常驻放大到 120%；飞入瞬间再叠加一次轻微脉冲（仅对选中项）。
+        let selectionScale: CGFloat = (isSelected ? Layout.selectedScale : 1)
+            * (isSelected && isReceiving ? 1.06 : 1)
         return VStack(spacing: Layout.rowSpacing) {
             // 所有相簿的图标、封面与徽章尺寸完全一致；选中只换贴图 + 一次回弹。
             ZStack {
@@ -275,20 +274,6 @@ struct FavoriteAlbumColumn: View {
                         .blur(radius: max(10, icon * 0.17))
                 }
             }
-            .keyframeAnimator(
-                initialValue: SelectionPulse(),
-                trigger: selectionPulseToken
-            ) { content, value in
-                content.scaleEffect(isSelected ? value.scale : 1)
-            } keyframes: { _ in
-                let amplitude: CGFloat = reduceMotion ? 0 : 1
-                KeyframeTrack(\.scale) {
-                    CubicKeyframe(1, duration: 0.02)
-                    CubicKeyframe(1 + (Layout.selectionPop - 1) * amplitude, duration: 0.12)
-                    CubicKeyframe(1, duration: 0.20)
-                }
-            }
-
             Text(album.title)
                 .font(.system(size: config.titleSize, weight: .semibold))
                 .foregroundStyle(isSelected ? Theme.Device.door : Theme.Text.primary)
@@ -302,20 +287,15 @@ struct FavoriteAlbumColumn: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         // 飞入时的轻微脉冲与「选中回弹」是两条独立通道，互不影响。
-        .scaleEffect(isSelected && isReceiving ? 1.06 : 1)
+        .scaleEffect(selectionScale)
         .shadow(
             color: isSelected && isReceiving ? Theme.Device.door.opacity(0.5) : .clear,
             radius: 8
         )
         .animation(
-            reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.3, dampingFraction: 0.7),
-            value: isReceiving
+            Theme.Motion.animation(.spring, reduceMotion: reduceMotion),
+            value: selectionScale
         )
-    }
-
-    /// 选中回弹的可动画量；只放大一下，随后回到 1 保持统一大小。
-    private struct SelectionPulse {
-        var scale: CGFloat = 1
     }
 
     /// 相簿照片数量徽章：只显示数字，封面缩略图另画在前盖中央。
@@ -374,7 +354,6 @@ struct FavoriteAlbumColumn: View {
             }
         }
         commitSelection(at: clamped)
-        selectionPulseToken += 1
     }
 
     private func commitSelection(at index: Int) {

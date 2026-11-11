@@ -63,6 +63,7 @@ struct SettingsView: View {
                 snoozeSection
                 vaultSection
                 vipSection
+                ourAppsSection
                 aboutSection
                 #if DEBUG
                 debugSection
@@ -345,6 +346,12 @@ struct SettingsView: View {
         } footer: {
             Text("一期只有模拟开关，无内购、无价格。二期接入 StoreKit 2 后，真实交易结果会写入同一个 EntitlementStore。")
         }
+    }
+
+    // MARK: - 我们的应用
+
+    private var ourAppsSection: some View {
+        OurAppsSection()
     }
 
     // MARK: - 关于
