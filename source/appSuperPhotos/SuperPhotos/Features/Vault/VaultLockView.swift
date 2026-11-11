@@ -102,102 +102,126 @@ struct VaultLockView: View {
 
     private var lockContent: some View {
         GeometryReader { proxy in
-            let dialDiameter = min(
-                (proxy.size.width - Theme.Spacing.page * 2 - Theme.Spacing.lg) / 2,
-                172
+            // 左盘（小）直径按可用宽度收敛，右盘（大）放大到 150%。
+            let small = min(
+                (proxy.size.width - Theme.Spacing.page * 2) / 2.4,
+                150
             )
+            let large = small * 1.5
+            // 图标随可用宽度自适应并放大到 150%，约束在合理区间以适配不同设备。
+            let iconSize = min(max(proxy.size.width * 0.15, 52), 84) * 1.5
 
             ScrollView {
-                VStack(spacing: Theme.Spacing.xl) {
-                    header
-                    dials(diameter: dialDiameter)
-                    statusArea
-                    actionArea
-                    footnote
+                VStack(spacing: 0) {
+                    Spacer(minLength: Theme.Spacing.lg)   // 顶部图标上方留白
+
+                    // 上区：图标 + 标题（无 tips）
+                    VStack(spacing: Theme.Spacing.md) {
+                        headerIcon(iconSize)
+                        Text(titleText)
+                            .font(Theme.Typography.title)
+                            .foregroundStyle(Theme.Text.primary)
+                    }
+
+                    Spacer(minLength: Theme.Spacing.lg)
+
+                    // 中区：密码盘
+                    dials(small: small, large: large)
+
+                    Spacer(minLength: Theme.Spacing.lg)
+
+                    // 下区：提示条（共用 tips 与错误，常驻）+ 主按钮 + 预留的“重新来过”文字按钮
+                    VStack(spacing: Theme.Spacing.lg) {
+                        hintBar
+                        actionArea
+                        redoSlot
+                    }
+
+                    Spacer(minLength: Theme.Spacing.lg)   // 按钮下方留白
                 }
+                .frame(minHeight: proxy.size.height)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, Theme.Spacing.page)
-                .padding(.top, Theme.Spacing.xxl)
+                .padding(.top, Theme.Spacing.xl)
                 .padding(.bottom, Theme.Spacing.xl)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
     }
 
-    private var header: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            ZStack {
-                Circle()
-                    .fill(Theme.Surface.raised)
-                    .frame(width: 76, height: 76)
-                    .shadow(color: Theme.Shadow.dark.opacity(0.8), radius: 8, x: 5, y: 5)
-                    .shadow(color: Theme.Shadow.highlight, radius: 8, x: -5, y: -5)
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 27, weight: .semibold))
-                    .foregroundStyle(Theme.Accent.brass)
-            }
-
-            Text(titleText)
-                .font(Theme.Typography.title)
-                .foregroundStyle(Theme.Text.primary)
-
-            Text(subtitleText)
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Text.secondary)
-                .multilineTextAlignment(.center)
-        }
+    /// 上区图标：直接展示 icon_vault，无圆框。
+    private func headerIcon(_ size: CGFloat) -> some View {
+        Image("icon_vault")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 
-    private func dials(diameter: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: Theme.Spacing.lg) {
+    /// 按钮上方常驻提示条：默认显示 tips；出错 / 锁定 / 核对中时切换为对应提示；
+    /// 当两盘均为 0 时给出「0+0 不可作密码」的警示。复用原内嵌（inset）样式与 44 高度。
+    private var hintBar: some View {
+        let message: String?
+        let tone: Color
+
+        if isLocked {
+            message = "已锁定，请在 \(countdownText) 后重试"
+            tone = Theme.State.danger
+        } else if isVerifying {
+            message = "正在核对组合…"
+            tone = Theme.State.danger
+        } else if let errorText {
+            message = errorText
+            tone = Theme.State.danger
+        } else if left == 0, right == 0 {
+            message = "0 + 0 不可作为密码，请转动密码盘设置组合"
+            tone = Theme.State.warning
+        } else {
+            message = nil
+            tone = Theme.Text.secondary
+        }
+
+        let text = message ?? subtitleText
+
+        return Text(text)
+            .font(Theme.Typography.body)
+            .foregroundStyle(tone)
+            .multilineTextAlignment(.center)
+            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Theme.Spacing.lg)
+            .padding(.vertical, Theme.Spacing.sm)
+            .neuSurface(.inset, cornerRadius: Theme.Radius.card)
+    }
+
+    /// 错落双盘：左盘（小）居左上、右盘（大，150%）居右下，水平交叠形成错落。
+    private func dials(small: CGFloat, large: CGFloat) -> some View {
+        let overlap = small * 0.30
+        let drop = (large - small) * 0.6 + 80
+
+        return HStack(alignment: .top, spacing: -overlap) {
             DialView(
-                label: "左盘 A · 0–\(VaultCredentials.maxDialValue)",
-                count: VaultCredentials.dialCount,
+                label: "左盘 A · 0–\(VaultCredentials.leftMaxDialValue)",
+                count: VaultCredentials.leftDialCount,
                 value: $left,
                 isEnabled: dialsEnabled,
-                diameter: diameter
+                diameter: small
             ) {
                 errorText = nil
             }
 
             DialView(
-                label: "右盘 B · 0–\(VaultCredentials.maxDialValue)",
-                count: VaultCredentials.dialCount,
+                label: "右盘 B · 0–\(VaultCredentials.rightMaxDialValue)",
+                count: VaultCredentials.rightDialCount,
                 value: $right,
                 isEnabled: dialsEnabled,
-                diameter: diameter
+                diameter: large
             ) {
                 errorText = nil
             }
+            .offset(y: drop)
         }
-    }
-
-    private var statusArea: some View {
-        VStack(spacing: Theme.Spacing.xs) {
-            if isLocked {
-                Text("已锁定，请在 \(countdownText) 后重试")
-                    .font(Theme.Typography.headline.monospacedDigit())
-                    .foregroundStyle(Theme.State.danger)
-            } else if isVerifying {
-                Text("正在核对组合…")
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Text.secondary)
-            } else if let errorText {
-                Text(errorText)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.State.danger)
-                    .multilineTextAlignment(.center)
-            } else {
-                Text(mode == .setupConfirm ? "请再转一次相同的组合" : "转好两个盘后点「开门」")
-                    .font(Theme.Typography.caption)
-                    .foregroundStyle(Theme.Text.tertiary)
-            }
-        }
-        .frame(minHeight: 44)
-        .padding(.horizontal, Theme.Spacing.lg)
-        .padding(.vertical, Theme.Spacing.sm)
-        .frame(maxWidth: .infinity)
-        .neuSurface(.inset, cornerRadius: Theme.Radius.card)
+        .padding(.bottom, drop)
     }
 
     @ViewBuilder
@@ -210,21 +234,23 @@ struct VaultLockView: View {
                 Label("开门", systemImage: "door.left.hand.open")
             }
             .buttonStyle(
-                NeuButtonStyle(
-                    variant: .raised,
-                    tint: canPressDoor ? Theme.Accent.brass : Theme.Text.tertiary,
+                NeuPillButtonStyle(
                     horizontalPadding: Theme.Spacing.xxl
                 )
             )
             .opacity(canPressDoor ? 1 : 0.7)
             // 只有点这里才比对：两盘停稳不触发校验。
-            // 0/0 也是合法组合，所以不要求“两盘都动过”才可点。
+            // 0/0 视为非法组合，已在 canPressDoor 中禁用。
             .disabled(!canPressDoor)
             .accessibilityLabel("开门")
             .accessibilityHint("用左盘 \(left) 和右盘 \(right) 的当前读数尝试解锁")
 
         case .setupFirst:
             Button {
+                guard !(left == 0 && right == 0) else {
+                    errorText = "密码不能是 0 + 0，请先转动密码盘设置组合"
+                    return
+                }
                 setupFirstCombo = (left, right)
                 mode = .setupConfirm
                 left = 0
@@ -234,52 +260,41 @@ struct VaultLockView: View {
                 Label("下一步", systemImage: "arrow.right")
             }
             .buttonStyle(
-                NeuButtonStyle(
-                    variant: .raised,
-                    tint: Theme.Accent.brass,
+                NeuPillButtonStyle(
                     horizontalPadding: Theme.Spacing.xxl
                 )
             )
+            .disabled(left == 0 && right == 0)
 
         case .setupConfirm:
-            HStack(spacing: Theme.Spacing.md) {
-                Button("重来") {
-                    mode = .setupFirst
-                    setupFirstCombo = nil
-                    left = 0
-                    right = 0
-                    errorText = nil
-                }
-                .buttonStyle(NeuButtonStyle(variant: .raisedSmall, cornerRadius: Theme.Radius.chip))
-
-                Button {
-                    confirmSetup()
-                } label: {
-                    Label("确认保存", systemImage: "checkmark")
-                }
-                .buttonStyle(
-                    NeuButtonStyle(
-                        variant: .raised,
-                        tint: Theme.Accent.brass,
-                        horizontalPadding: Theme.Spacing.lg
-                    )
-                )
+            Button {
+                confirmSetup()
+            } label: {
+                Label("确认保存", systemImage: "checkmark")
             }
+            .buttonStyle(
+                NeuPillButtonStyle(
+                    horizontalPadding: Theme.Spacing.lg
+                )
+            )
+            .disabled(left == 0 && right == 0)
         }
     }
 
-    private var footnote: some View {
-        VStack(spacing: Theme.Spacing.xs) {
-            Text("40 × 40 = 1600 种组合。忘记密码后无法找回，请先记下再继续。")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Text.tertiary)
-                .multilineTextAlignment(.center)
-            Text("内容仅存于本机；卸载 App 会一并删除。")
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Text.tertiary)
-                .multilineTextAlignment(.center)
+    /// 主按钮下方预留的「重新来过」文字按钮槽位：固定高度，所有模式都占位，
+    /// 仅设置密码二次确认（setupConfirm）时填入按钮，避免主按钮位置随模式跳动。
+    private var redoSlot: some View {
+        VStack(spacing: 0) {
+            if mode == .setupConfirm {
+                Button {
+                    redoSetup()
+                } label: {
+                    Label("重新来过", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(NeuTextButtonStyle())
+            }
         }
-        .padding(.top, Theme.Spacing.sm)
+        .frame(height: 48)
     }
 
     // MARK: - 状态
@@ -288,9 +303,9 @@ struct VaultLockView: View {
         !isLocked && !isVerifying
     }
 
-    /// 开门按钮只在锁定倒计时或核对中禁用；0/0 是合法组合，不要求先动过盘。
+    /// 开门按钮在锁定倒计时或核对中禁用；0/0 视为非法组合，不允许直接开门。
     private var canPressDoor: Bool {
-        !isLocked && !isVerifying
+        !isLocked && !isVerifying && !(left == 0 && right == 0)
     }
 
     private var titleText: String {
@@ -366,6 +381,14 @@ struct VaultLockView: View {
             mode = .setupFirst
             return
         }
+        guard !(first.a == 0 && first.b == 0) else {
+            mode = .setupFirst
+            setupFirstCombo = nil
+            left = 0
+            right = 0
+            errorText = "密码不能是 0 + 0，请重新设置"
+            return
+        }
         guard first.a == left, first.b == right else {
             mode = .setupFirst
             setupFirstCombo = nil
@@ -383,6 +406,15 @@ struct VaultLockView: View {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    /// 设置密码二次确认时「重新来过」：回到首次设置，清空已输入组合。
+    private func redoSetup() {
+        mode = .setupFirst
+        setupFirstCombo = nil
+        left = 0
+        right = 0
+        errorText = nil
     }
 
     private func fail(_ message: String) {

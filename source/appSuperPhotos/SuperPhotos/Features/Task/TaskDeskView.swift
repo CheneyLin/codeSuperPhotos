@@ -81,22 +81,10 @@ struct TaskDeskView: View {
             }
         } label: {
             Text(primaryTitle)
-                .font(Theme.Typography.headline)
-                .foregroundStyle(Theme.Text.onWhite)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
-                .padding(.horizontal, 32)
-                .frame(minWidth: 132, minHeight: 52)
-                .background {
-                    // 纯白胶囊底衬；白底深字在深浅模式都保持对比度。
-                    Capsule(style: .continuous)
-                        .fill(Theme.Surface.pill)
-                }
-                // 命中区域严格等于胶囊本体；不做透明放大。
-                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.18), radius: 9, x: 0, y: 6)
+        .buttonStyle(NeuPillButtonStyle())
         .accessibilityLabel(primaryTitle)
         .hitDebugRegion("主按钮")
     }
@@ -107,18 +95,13 @@ struct TaskDeskView: View {
                 Image("icon_check_circle")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 14, height: 14)
+                    .frame(width: 18, height: 18)
 
                 Text("直接结束")
-                    .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(Theme.Text.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            // 无背景，命中区域=图标+文字的内容边界。
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // 图标 14→18、文字 12→15（body），整体调大一档，纳入设计系统文字按钮。
+        .buttonStyle(NeuTextButtonStyle())
         .accessibilityHint("未处理的照片按保留处理，随后进入结算")
         .hitDebugRegion("直接结束")
     }

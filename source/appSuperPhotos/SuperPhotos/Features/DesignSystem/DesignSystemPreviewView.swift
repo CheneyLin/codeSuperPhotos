@@ -121,13 +121,13 @@ struct DesignSystemPreviewView: View {
         previewSection("按钮") {
             VStack(spacing: Theme.Spacing.lg) {
                 Button("开始整理") {}
-                    .buttonStyle(.neuRaised)
+                    .buttonStyle(.neuPill)
 
                 Button {
                 } label: {
                     Label("存入保险箱", systemImage: "lock.fill")
                 }
-                .buttonStyle(NeuButtonStyle(variant: .raised, tint: Theme.Accent.brass))
+                .buttonStyle(.neuPill)
 
                 HStack(spacing: Theme.Spacing.lg) {
                     Button("取消") {}

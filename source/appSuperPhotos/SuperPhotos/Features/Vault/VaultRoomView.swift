@@ -149,8 +149,7 @@ struct VaultRoomView: View {
                     }
                 }
             }
-            .font(Theme.Typography.caption.weight(.semibold))
-            .foregroundStyle(Theme.Accent.brass)
+            .buttonStyle(NeuTextButtonStyle(font: Theme.Typography.caption.weight(.semibold)))
         }
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.vertical, Theme.Spacing.sm)
@@ -238,11 +237,8 @@ struct VaultRoomView: View {
                 Label("取出", systemImage: "arrow.up.forward.app")
             }
             .buttonStyle(
-                NeuButtonStyle(
-                    variant: .raised,
-                    tint: Theme.Accent.brass,
-                    horizontalPadding: Theme.Spacing.md,
-                    verticalPadding: Theme.Spacing.sm
+                NeuPillButtonStyle(
+                    horizontalPadding: Theme.Spacing.md
                 )
             )
 

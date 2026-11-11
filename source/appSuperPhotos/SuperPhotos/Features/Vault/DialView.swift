@@ -197,8 +197,8 @@ struct DialView: View {
 
 #Preview {
     HStack(spacing: 24) {
-        DialView(label: "左盘 A", count: VaultCredentials.dialCount, value: .constant(7))
-        DialView(label: "右盘 B", count: VaultCredentials.dialCount, value: .constant(23))
+        DialView(label: "左盘 A", count: VaultCredentials.leftDialCount, value: .constant(7))
+        DialView(label: "右盘 B", count: VaultCredentials.rightDialCount, value: .constant(23))
     }
     .padding(32)
     .background(Theme.Surface.base)

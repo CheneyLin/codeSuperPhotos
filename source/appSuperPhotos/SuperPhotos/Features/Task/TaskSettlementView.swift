@@ -72,24 +72,18 @@ struct TaskSettlementView: View {
                         onNext()
                     } label: {
                         Text("再整理一批")
-                            .font(Theme.Typography.headline)
-                            .foregroundStyle(Theme.Surface.base)
-                            .padding(.horizontal, 40)
-                            .frame(minHeight: 50)
-                            .background { Capsule().fill(Theme.Accent.brass) }
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(
+                        NeuPillButtonStyle(
+                            horizontalPadding: 40,
+                            minHeight: 50
+                        )
+                    )
 
                     Button("返回桌面", action: onClose)
-                        .buttonStyle(
-                            NeuButtonStyle(
-                                variant: .raisedSmall,
-                                cornerRadius: Theme.Radius.chip,
-                                tint: Theme.Text.secondary,
-                                horizontalPadding: Theme.Spacing.xl,
-                                verticalPadding: Theme.Spacing.xs
-                            )
-                        )
+                        .buttonStyle(NeuTextButtonStyle())
                 }
 
                 Spacer(minLength: Theme.Spacing.xl)

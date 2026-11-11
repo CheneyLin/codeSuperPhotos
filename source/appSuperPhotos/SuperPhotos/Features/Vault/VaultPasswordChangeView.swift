@@ -21,12 +21,13 @@ struct VaultPasswordChangeView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let dialDiameter = min((proxy.size.width - Theme.Spacing.page * 2 - Theme.Spacing.lg) / 2, 140)
+            let small = min((proxy.size.width - Theme.Spacing.page * 2) / 2.4, 140)
+            let large = small * 1.5
 
             ScrollView {
                 VStack(spacing: Theme.Spacing.xl) {
                     header
-                    dials(diameter: dialDiameter)
+                    dials(small: small, large: large)
                     status
                     action
                 }
@@ -65,28 +66,34 @@ struct VaultPasswordChangeView: View {
         }
     }
 
-    private func dials(diameter: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: Theme.Spacing.lg) {
+    /// 错落双盘：左盘（小）居左上、右盘（大，150%）居右下，水平交叠形成错落。
+    private func dials(small: CGFloat, large: CGFloat) -> some View {
+        let overlap = small * 0.30
+        let drop = (large - small) * 0.6
+
+        return HStack(alignment: .top, spacing: -overlap) {
             DialView(
-                label: "左盘 A · 0–\(VaultCredentials.maxDialValue)",
-                count: VaultCredentials.dialCount,
+                label: "左盘 A · 0–\(VaultCredentials.leftMaxDialValue)",
+                count: VaultCredentials.leftDialCount,
                 value: $left,
                 isEnabled: step != .done && lockedSeconds == 0,
-                diameter: diameter
+                diameter: small
             ) {
                 errorText = nil
             }
 
             DialView(
-                label: "右盘 B · 0–\(VaultCredentials.maxDialValue)",
-                count: VaultCredentials.dialCount,
+                label: "右盘 B · 0–\(VaultCredentials.rightMaxDialValue)",
+                count: VaultCredentials.rightDialCount,
                 value: $right,
                 isEnabled: step != .done && lockedSeconds == 0,
-                diameter: diameter
+                diameter: large
             ) {
                 errorText = nil
             }
+            .offset(y: drop)
         }
+        .padding(.bottom, drop)
     }
 
     @ViewBuilder
@@ -109,7 +116,7 @@ struct VaultPasswordChangeView: View {
                 .foregroundStyle(Theme.State.danger)
                 .multilineTextAlignment(.center)
         } else {
-            Text("组合空间 40 × 40 = 1600 种。忘记后无法找回。")
+            Text("组合空间 30 × 60 = 1800 种。忘记后无法找回。")
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
                 .multilineTextAlignment(.center)
@@ -125,7 +132,7 @@ struct VaultPasswordChangeView: View {
             } label: {
                 Label("验证旧密码", systemImage: "lock.open")
             }
-            .buttonStyle(NeuButtonStyle(variant: .raised, tint: Theme.Accent.brass))
+            .buttonStyle(NeuPillButtonStyle())
             .disabled(lockedSeconds > 0)
 
         case .newCombo:
@@ -138,7 +145,7 @@ struct VaultPasswordChangeView: View {
             } label: {
                 Label("下一步", systemImage: "arrow.right")
             }
-            .buttonStyle(NeuButtonStyle(variant: .raised, tint: Theme.Accent.brass))
+            .buttonStyle(NeuPillButtonStyle())
 
         case .confirmNew:
             HStack(spacing: Theme.Spacing.md) {
@@ -156,12 +163,12 @@ struct VaultPasswordChangeView: View {
                 } label: {
                     Label("保存新密码", systemImage: "checkmark")
                 }
-                .buttonStyle(NeuButtonStyle(variant: .raised, tint: Theme.Accent.brass))
+                .buttonStyle(NeuPillButtonStyle())
             }
 
         case .done:
             Button("完成") { dismiss() }
-                .buttonStyle(NeuButtonStyle(variant: .raised))
+                .buttonStyle(NeuPillButtonStyle())
         }
     }
 

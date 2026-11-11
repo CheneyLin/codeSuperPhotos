@@ -28,6 +28,12 @@ enum Theme {
             light: 0xFFFFFF, dark: 0xFFFFFF,
             lightHighContrast: 0xFFFFFF, darkHighContrast: 0xFFFFFF
         )
+        /// 胶囊按钮（NeuPillButtonStyle）专用底色：与背景强反相——亮色模式为深色实体，暗色模式为纯白实体，
+        /// 保证按钮从页面底色里跳出来。与 `pill`（徽标用、深浅都保持纯白实体道具）区分。
+        static let pillButton = dynamic(
+            light: 0x23282E, dark: 0xFFFFFF,
+            lightHighContrast: 0x101418, darkHighContrast: 0xFFFFFF
+        )
     }
 
     enum Text {
@@ -43,6 +49,11 @@ enum Theme {
         static let onWhite = dynamic(
             light: 0x2B313A, dark: 0x242A32,
             lightHighContrast: 0x101418, darkHighContrast: 0x101418
+        )
+        /// 胶囊按钮（NeuPillButtonStyle）专用文字：与底色互补——亮色模式近白，暗色模式深墨，随主题切换。
+        static let pillButton = dynamic(
+            light: 0xF2F4F7, dark: 0x1E2227,
+            lightHighContrast: 0xFFFFFF, darkHighContrast: 0x101418
         )
         static let tertiary = dynamic(
             light: 0x7A8591, dark: 0x6F7A86,
@@ -130,6 +141,10 @@ enum Theme {
         static let danger = dynamic(
             light: 0xC0453C, dark: 0xE06B60,
             lightHighContrast: 0x8F211A, darkHighContrast: 0xFF9A8F
+        )
+        static let warning = dynamic(
+            light: 0xB7791F, dark: 0xD9A441,
+            lightHighContrast: 0x8A5A12, darkHighContrast: 0xF2C46B
         )
     }
 

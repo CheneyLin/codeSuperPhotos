@@ -199,7 +199,7 @@ struct OnboardingView: View {
             Text(page < pages.count - 1 ? "下一步" : "开始整理")
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(NeuButtonStyle(variant: .raised, tint: Theme.Accent.fire))
+        .buttonStyle(NeuPillButtonStyle())
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.bottom, Theme.Spacing.xl)
         .accessibilityHint(page < pages.count - 1 ? "进入下一页" : "完成引导并进入主界面")

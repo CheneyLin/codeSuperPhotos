@@ -38,7 +38,7 @@ struct PermissionIntroView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.neuRaised)
+            .buttonStyle(.neuPill)
             .disabled(isRequesting)
         }
         .padding(Theme.Spacing.page)
@@ -77,7 +77,7 @@ struct PermissionDeniedView: View {
                 Text("去系统设置")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.neuRaised)
+            .buttonStyle(.neuPill)
         }
         .padding(Theme.Spacing.page)
     }

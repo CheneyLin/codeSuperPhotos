@@ -232,7 +232,7 @@ struct PhotoStageView: View {
             .overlay(alignment: .center) {
                 if let days = snoozePreviewDays, !isShifting {
                     snoozeBadge(days: days)
-                        .offset(y: baseline - frontCardSize.height - 26)
+                        .offset(y: baseline - frontCardSize.height - 26 - 80)
                         .allowsHitTesting(false)
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                         .zIndex(30)

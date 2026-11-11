@@ -69,7 +69,7 @@ struct VaultPreviewDrawer: View {
                     Label(vault.isConfigured ? "解锁并查看" : "设置密码", systemImage: "lock.open")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(NeuButtonStyle(variant: .raised, tint: Theme.Accent.brass))
+                .buttonStyle(NeuPillButtonStyle())
 
                 Button {
                     onStoreCurrent()
