@@ -335,7 +335,7 @@ struct HomeView: View {
                 title: "私密保险箱，已存 \(vault.records.count) 件",
                 swayToken: keySwayToken
             ) {
-                openVaultPreview()
+                openVault()
             }
             .offset(x:8,y:8)
         }
@@ -497,11 +497,12 @@ struct HomeView: View {
                             width: sideWidth,
                             count: vault.records.count,
                             isOpen: vaultDoorOpen,
-                            onTap: { openVaultPreview() }
+                            // 与左上角钥匙按钮共用同一个入口：跳过预览抽屉，直接进保险箱房间。
+                            onOpen: { openVault() }
                         )
                         .frame(width: sideWidth, height: rowHeight)
-                        // 这里不裁剪：图标中心落在屏幕坐标 0.25×边长处，
-                        // 左侧 25% 必须真的在屏幕外，箱体左缘贴住屏幕左缘（0 边距）。
+                        // 这里不裁剪：放大后的箱体左侧约 65% 必须真的落在屏幕外，
+                        // 右边缘贴住左栏右边缘；命中区由组件自己收在可见部分内，不越界到中栏。
 
                         // 中栏：舞台与桌面共用一条中线，和左右栏（整行居中）同一套落点规则。
                         // 液晶屏已在顶栏三段里，不再压在中栏顶部。
@@ -656,11 +657,13 @@ struct HomeView: View {
             ?? CGSize(width: 390, height: 844)
     }
 
-    /// 左滑飞出落点：保险箱图标中心在屏幕坐标 0.25×边长处，
+    /// 左滑飞出落点：对齐左侧保险箱「可见箱体」的中心（相对屏幕左边缘），
     /// 所以从舞台中心（≈ 屏幕中心）往左的位移是屏幕半宽减去这段距离。
+    /// 几何口径统一由 `VaultDoorColumn.visibleCenterX(for:)` 提供，
+    /// 不再按放大前的 0.25 × 基准边长估算（那会落在嵌墙的空白里）。
     private func vaultDropOffset(in proxy: GeometryProxy, sideWidth: CGFloat) -> CGFloat {
-        let iconSize = VaultDoorColumn.iconSize(for: sideWidth)
-        return max(0, proxy.size.width / 2 - 0.25 * iconSize)
+        let visibleCenterX = VaultDoorColumn.visibleCenterX(for: sideWidth)
+        return max(0, proxy.size.width / 2 - visibleCenterX)
     }
 
     private func stageSection(vaultDropOffset: CGFloat) -> some View {
@@ -1381,6 +1384,8 @@ struct HomeView: View {
         handleTaskProgress()
     }
 
+    /// 预览抽屉现在只由 UI_TEST_VAULT_DRAWER 拉起，用于单独验收抽屉版式。
+    /// 正式入口见 openVault()：两处点击都跳过抽屉，直接进全屏保险箱房间。
     private func openVaultPreview() {
         isAlbumsDrawerPresented = false
         withAnimation(Theme.Motion.animation(.drawer, reduceMotion: reduceMotion)) {
@@ -1394,6 +1399,9 @@ struct HomeView: View {
         }
     }
 
+    /// 左上角钥匙与中间区左侧保险箱实体的唯一入口：
+    /// 跳过预览抽屉，直接全屏打开保险箱；解锁 / 设置密码由 VaultLockView 内部负责。
+    /// 两处点击必须共用这个方法，避免行为分叉。
     private func openVault() {
         isVaultDrawerPresented = false
         isAlbumsDrawerPresented = false
