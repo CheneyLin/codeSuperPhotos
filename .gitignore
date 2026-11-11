@@ -63,3 +63,4 @@ fastlane/test_output
 *.zip
 .DS_Store
 .DS_Store
+/design

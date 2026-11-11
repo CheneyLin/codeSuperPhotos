@@ -477,7 +477,7 @@ private struct FavoriteAlbumCover: View {
     }
 }
 
-private enum FavoriteAlbumPreviewData {
+enum FavoriteAlbumPreviewData {
     static let albums: [AlbumItem] = [
         AlbumItem(id: "1", title: "旅行", kind: .user, count: 32, symbolName: "folder", coverLocalID: "ui-test-photo-01"),
         AlbumItem(id: "2", title: "家人合影", kind: .user, count: 108, symbolName: "folder", coverLocalID: "ui-test-photo-02"),

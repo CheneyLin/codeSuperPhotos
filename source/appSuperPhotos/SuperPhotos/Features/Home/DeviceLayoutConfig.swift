@@ -76,7 +76,14 @@ struct SceneryAssets: Equatable, Sendable {
         light: "scenery_background_light_duo_outer",
         dark: "scenery_background_dark_duo_outer"
     )
-    
+    static let duoInnerPortrait = SceneryAssets(
+        light: "scenery_background_light_duo_inner_p",
+        dark: "scenery_background_dark_duo_inner_p"
+    )
+    static let duoInnerLandscape = SceneryAssets(
+        light: "scenery_background_light_duo_inner_l",
+        dark: "scenery_background_dark_duo_inner_l"
+    )
 }
 
 /// 收藏夹滚轮：一屏可见行数 + 图标尺寸 + 两档字号。
@@ -132,21 +139,24 @@ enum DeviceLayoutConfig {
     private static let largePortraitFavorites = FavoriteSettings(
         rows: 5, iconSize: 114, titleSize: 13, badgeSize: 11
     )
-    /// 放大档（保留 5 行）：iPad 竖屏。
+    /// DuoInnerLandscape
     private static let favoritesDuoInnerLandscape = FavoriteSettings(
-        rows: 3, iconSize: 140, titleSize: 16, badgeSize: 12
+        rows: 3, iconSize: 160, titleSize: 16, badgeSize: 12
+    )
+    /// DuoInnerPortrait
+    private static let favoritesDuoInnerPortrait = FavoriteSettings(
+        rows: 5, iconSize: 140, titleSize: 14, badgeSize: 12
     )
 
     /// 默认背景：所有形态共用官方成品图；换图时改对应形态的 `background` 即可。
     private static let standardBackground = SceneryAssets.standard
-    
-    private static let duoOuterBackground = SceneryAssets.duoOuter
 
     /// 默认三区：中间区占满容器（等价于旧的 1.44 倍行高被屏高钳住后的结果）。
     /// 想给顶栏 / 道具区留出专门空间，替换成例如 `ZoneRatios(top: 1, middle: 7, bottom: 2)`。
     private static let fullMiddleZones = ZoneRatios(top: 0, middle: 1, bottom: 0)
     private static let fullMiddleZonesDuoOuter = ZoneRatios(top: 0, middle: 14, bottom: 5)
     private static let fullMiddleZonesDuoInnerLandscape = ZoneRatios(top: 0, middle: 14, bottom: 5)
+    private static let fullMiddleZonesDuoInnerPortrait = ZoneRatios(top: 0, middle: 80, bottom: 20)
 
     // MARK: 七个形态 —— 只改下面这些数值
 
@@ -180,21 +190,21 @@ enum DeviceLayoutConfig {
 
     static let duoOuterScreen = DeviceLayoutEntry(
         form: .duoOuterScreen,
-        background: duoOuterBackground,
+        background: SceneryAssets.duoOuter,
         favorites: largeLandscapeFavorites,
         zones: fullMiddleZonesDuoOuter
     )
 
     static let duoInnerPortrait = DeviceLayoutEntry(
         form: .duoInnerPortrait,
-        background: standardBackground,
-        favorites: compactFavorites,
-        zones: fullMiddleZones
+        background: SceneryAssets.duoInnerPortrait,
+        favorites: favoritesDuoInnerPortrait,
+        zones: fullMiddleZonesDuoInnerPortrait
     )
 
     static let duoInnerLandscape = DeviceLayoutEntry(
         form: .duoInnerLandscape,
-        background: standardBackground,
+        background: SceneryAssets.duoInnerLandscape,
         favorites: favoritesDuoInnerLandscape,
         zones: fullMiddleZonesDuoInnerLandscape
     )

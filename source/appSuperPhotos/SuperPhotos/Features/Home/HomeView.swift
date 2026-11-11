@@ -527,7 +527,8 @@ struct HomeView: View {
                         FavoriteAlbumColumn(
                             // 比左侧保险箱宽一档，整体放大；中栏宽度已按这个宽度反推。
                             width: favoriteWidth,
-                            albums: albumService.userAlbums,
+                            //albums: albumService.userAlbums,
+                            albums: FavoriteAlbumPreviewData.albums,
                             selectedAlbumID: settings.defaultAlbumID,
                             isReceiving: favoritesReceiving,
                             thumbnails: library.thumbnails,
