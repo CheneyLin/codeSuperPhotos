@@ -23,6 +23,8 @@ struct LayoutProbe: Equatable {
     var dockH: CGFloat = 0
     var benchTop: CGFloat = 0
     var contentBottom: CGFloat = 0
+    /// 当前生效的多设备布局形态（来自 `DeviceLayoutConfig`），真机调参时先确认这一行。
+    var formName: String = ""
     var showsStage: Bool = false
 }
 
@@ -153,6 +155,7 @@ struct HitDebugHUD: View {
                 Text("contentTop \(fmt(probe.contentTop))  H \(fmt(probe.contentHeight))")
                 Text("dock \(fmt(probe.dockH))  bench \(fmt(probe.benchTop))")
                 Text("contentBottom \(fmt(probe.contentBottom))")
+                Text("form \(probe.formName)")
                 Text("stage \(probe.showsStage ? "1" : "0")")
                 if let rect = regions["中栏"] {
                     Text("中栏 \(fmt(rect.width))×\(fmt(rect.height)) @\(fmt(rect.minX)),\(fmt(rect.minY))")

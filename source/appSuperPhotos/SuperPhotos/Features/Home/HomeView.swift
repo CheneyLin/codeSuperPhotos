@@ -22,6 +22,9 @@ struct HomeView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.appReduceMotion) private var appReduceMotion
+    /// 当前设备形态的判定输入：与背景视图共用 `DeviceLayoutConfig.current(...)`，
+    /// 保证背景资源、收藏夹参数、三区比例取到同一行配置。
+    @Environment(\.duoInfo) private var duoInfo
 
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
 
@@ -82,14 +85,6 @@ struct HomeView: View {
     /// 顶栏钥匙的提示摆动：冷启动后只触发一次。
     @State private var keySwayToken = 0
     @State private var hasPlayedKeySway = false
-
-    /// 三栏工作区（顶部 LCD 行与底部纸篓之间的「中间区」）高度倍率。
-    ///
-    /// 1.44 = 在「内容顶 → 台面 / 纸篓上沿」的基准行高上累计放大 44%：
-    /// 先在 1.2 基础上再 +20%（1.2 × 1.2）。顶边与 LCD 整行的相对位置不变，
-    /// 台面线、纸篓锚点、背景都不动；三栏（照片堆叠、保险箱门、收藏夹滚轮）
-    /// 按新行高重算居中落点。想调回原高度把这里改回 1 即可，其它计算无需同步修改。
-    private static let workspaceHeightScale: CGFloat = 1.44
 
     var body: some View {
         NavigationStack {
@@ -447,32 +442,22 @@ struct HomeView: View {
 
             let contentTopValue = contentTop(in: proxy)
             let usableH = contentHeight(in: proxy)
-            // 纸篓最多让出「可用高度 − 220」：任何情况下都保留一块可见的内容区，
-            // 不会出现 contentHeight − dockHeight ≤ 0 把行高挤成 0 的情况。
-            let dockBudget = min(dockHeight, max(0, usableH - 220))
-            let fallbackBottom = usableH - dockBudget
-            // 桌面上沿算成 0/负值（坐标系异常）时回退到纸篓上方，避免整行被压没。
-            let benchTopValue = benchTopY(in: proxy)
-            let contentBottom = max(
-                0,
-                min(benchTopValue > 0 ? benchTopValue : fallbackBottom, fallbackBottom)
-            )
-            // 行高显式给出，不再让内层 GeometryReader 反推：
-            // GeometryReader 的最小高度是 0，一旦外层建议高度异常就会被压成 0，
-            // 三栏（尤其被 clipped 的中栏）会整块消失。
-            // 顶部三段（左按钮 / LCD / 右按钮）已整体移入 safeAreaInset，
-            // 这里不再单独扣 LCD 行；占位与切态无关，桌面 / 处理中完全一致。
-            // 「中间区」按 workspaceHeightScale 放大：多出来的部分全部向下延伸，
-            // 由下方 padding 让出同样高度，保证行顶仍贴在 LCD 行下沿、不向上溢出。
-            let baseRowHeight = max(0, contentBottom - bannerHeight)
-            // 增量不许超过「内容底 → 容器底」的余量：否则 VStack 会比容器还高，
-            // 行顶被顶到 LCD 行上方（倍率继续调大或极短屏时尤其容易触发）。
-            let availableDrop = max(0, size.height - contentBottom)
-            let extraRowHeight = min(
-                baseRowHeight * (Self.workspaceHeightScale - 1),
-                availableDrop
-            )
-            let rowHeight = baseRowHeight + extraRowHeight
+            let config = layoutConfig
+            // 上 / 中 / 下三区：权重归一化后按「容器高」分配，取代旧的 1.44 倍缩放
+            // 与背景台面线 / 纸篓高度锚定。顶栏在 safeAreaInset 里单独占位，
+            // 这里的「上」是顶栏下沿 → 三栏行上沿的留白，
+            // 「下」是三栏行下沿 → 容器底（底部道具区所在带）。
+            let zoneTotal = config.zones.total
+            let topBand = size.height * config.zones.top / zoneTotal
+            let middleBand = size.height * config.zones.middle / zoneTotal
+            let bottomBand = size.height * config.zones.bottom / zoneTotal
+            // 受限访问提示条占中间区顶部，剩余才是三栏行高。
+            // 显式定高：内层 GeometryReader 最小高度是 0，不给显式值会被压没。
+            let rowHeight = max(1, middleBand - bannerHeight)
+            let bottomPadding = bottomBand
+            // 仅供 HUD 诊断：背景台面线（换图后核对落点）与三栏行底边。
+            let benchTopValue = benchTopY(in: proxy, entry: config)
+            let contentBottom = max(0, size.height - bottomBand)
 
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -546,6 +531,8 @@ struct HomeView: View {
                             selectedAlbumID: settings.defaultAlbumID,
                             isReceiving: favoritesReceiving,
                             thumbnails: library.thumbnails,
+                            // 行数 / 图标尺寸 / 字号全部来自当前形态的显式配置。
+                            config: config.favorites,
                             onSelect: { selectDefaultAlbum($0) }
                         )
                         .frame(height: rowHeight)
@@ -560,9 +547,10 @@ struct HomeView: View {
                     // 舞台要接住抽屉带来的缩放与失焦；两侧实体不参与缩放。
                     .allowsHitTesting(!isAlbumsDrawerPresented && !isVaultDrawerPresented)
                 }
-                // 基准底边是 contentBottom；减去放大出来的 extraRowHeight，
-                // 让中间区向下长 20%，而不是把行顶顶到 LCD 行上方。
-                .padding(.bottom, max(0, size.height - contentBottom - extraRowHeight))
+                // 三段留白都显式给出：行高 = 中区、上 / 下 padding = 上 / 下区，
+                // 三段之和恒等于容器高，不再依赖 ZStack 底对齐隐式吃掉上区。
+                .padding(.top, topBand)
+                .padding(.bottom, bottomPadding)
 
                 dockSection
                     .background {
@@ -592,6 +580,7 @@ struct HomeView: View {
                     dockH: dockHeight,
                     benchTop: benchTopValue,
                     contentBottom: contentBottom,
+                    formName: config.form.rawValue,
                     showsStage: showsStage
                 )
             )
@@ -642,9 +631,10 @@ struct HomeView: View {
         max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom)
     }
 
-    /// 桌面（台面）上沿在内容坐标系中的位置；与 SceneryBackgroundView 使用同一份比例。
-    private func benchTopY(in proxy: GeometryProxy) -> CGFloat {
-        let metrics = SceneryLayout.metrics(in: windowSize)
+    /// 桌面（台面）上沿在内容坐标系中的位置。仅用于 HUD 诊断，
+    /// 与背景视图共用当前形态那张图的真实宽高比；不再参与行高计算。
+    private func benchTopY(in proxy: GeometryProxy, entry: DeviceLayoutEntry) -> CGFloat {
+        let metrics = entry.sceneryMetrics(in: windowSize)
         return metrics.benchTopY - contentTop(in: proxy)
     }
 
@@ -655,6 +645,12 @@ struct HomeView: View {
             .flatMap(\.windows)
         return (windows.first(where: \.isKeyWindow) ?? windows.first)?.bounds.size
             ?? CGSize(width: 390, height: 844)
+    }
+
+    /// 当前形态的唯一配置入口：背景资源、收藏夹参数、三区比例都从这里取。
+    /// 背景视图也用同一个 `DeviceForm.current(...)` 判定，两处不会分叉。
+    private var layoutConfig: DeviceLayoutEntry {
+        DeviceLayoutConfig.current(duo: duoInfo, size: windowSize)
     }
 
     /// 左滑飞出落点：对齐左侧保险箱「可见箱体」的中心（相对屏幕左边缘），
