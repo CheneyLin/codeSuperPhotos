@@ -1,17 +1,21 @@
 import SwiftUI
+import UIKit
 
-/// 右侧收藏夹区：滚轮式选择“我的相簿”，停在中间的一本即当前收藏夹目标，
+/// 右侧收藏夹区：纯上下滚动的相簿选择器，停在中间的一本即当前收藏夹目标，
 /// 照片右滑时飞入这本相簿。
 ///
-/// 呈现：每个条目是一张相簿图标（按相簿 ID 稳定伪随机选用 `icon_folder_*`），
-/// 右上角徽章显示该相簿的照片数量，图标下方是 1–2 行相簿名。
-/// 选中项只放大 + 提亮，不画描边或选中带。
+/// 呈现：一屏 5 行、每行尺寸完全一致；所有相簿共用同一张文件夹贴图
+/// （未选 `icon_folder`，选中 `icon_folder_selected`），文件夹前盖中央嵌一张
+/// 4:3 裁切、带 2pt 白边的封面缩略图，右上角徽章显示张数。
+/// 选中项只做一次「放大回弹」，静息时不再常驻放大，也不加圆弧、透视或边缘缩放。
 struct FavoriteAlbumColumn: View {
     let width: CGFloat
     let albums: [AlbumItem]
     let selectedAlbumID: String?
     /// 一次飞入动作进行中，用于给选中的相簿一个强调脉冲。
     let isReceiving: Bool
+    /// 相簿封面缩略图统一走照片库的缓存加载器。
+    let thumbnails: ThumbnailProvider
     let onSelect: (AlbumItem) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -20,23 +24,26 @@ struct FavoriteAlbumColumn: View {
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
     private var compact: Bool { width < 88 }
 
-    /// 环形排布的几何参数：半径、每行角度、右移量、可见行数都集中在这里，方便微调。
-    private enum Ring {
-        /// 圆弧半径：圆心在栏中心右侧这么远（落在屏幕外）。
-        /// 越大弧线越平、端头右移越少；越小越像挂着一个大环。
-        static let radius: CGFloat = 2200
-        /// 一屏完整可见的行数：5 行整行可见；再往外的行整行落在容器外，被边缘裁掉。
+    /// 几何参数集中在这里，方便微调。
+    private enum Layout {
+        /// 一屏完整可见的行数：5 个收藏夹正好铺满容器高度。
         static let visibleRows: CGFloat = 5
-        /// 极限角度对应的 sin 上限，半径异常小时兜底，避免开方出现负数。
-        static let maxSin: CGFloat = 0.98
-        /// 端头在纯圆弧之上再叠加的右移量，按 |delta| / (visibleRows / 2) 线性给。
-        static let edgeExtraRight: CGFloat = 4
         /// 只渲染这个行距范围内的行（多留半行给拖拽过程），更远的直接跳过。
         static let renderRange: CGFloat = 3.6
         /// 上下边缘的淡出比例：越小越像被容器硬边挡住。
         static let edgeFade: CGFloat = 0.04
-        /// 选中图标相对基础尺寸的放大倍数（基础 58 → 约 72.5）。
-        static let selectedIconScale: CGFloat = 1.25
+        /// 文件夹图标边长：跟着栏宽收放，所有行（含选中行）共用。
+        static let maxIconSize: CGFloat = 60
+        static let compactMaxIconSize: CGFloat = 46
+        static let iconWidthRatio: CGFloat = 0.66
+        /// 封面内容宽度 / 图标边长；高度按 4:3 反推。
+        static let coverWidthRatio: CGFloat = 0.60
+        /// 封面外白边（pt）。
+        static let coverBorder: CGFloat = 2
+        /// 封面中心相对图标中心下移：对准文件夹前盖的视觉中心。
+        static let coverCenterYRatio: CGFloat = 0.055
+        /// 选中瞬间放大的峰值倍数，动画结束回到 1（保持统一大小）。
+        static let selectionPop: CGFloat = 1.14
     }
 
     /// 行高严格等于容器高度 / 可见行数。
@@ -44,25 +51,20 @@ struct FavoriteAlbumColumn: View {
     /// 容器高度由三栏区显式给定，这里不再用「最小行高」向父容器要空间——
     /// 否则行高一变大就会反过来撑高整行，把中栏顶上去。
     private func rowHeight(for height: CGFloat) -> CGFloat {
-        max(1, height / Ring.visibleRows)
+        max(1, height / Layout.visibleRows)
     }
 
-    /// 相簿图标基础边长：跟着栏宽收放；选中项在此基础上再放大 25%。
-    private var baseIconSize: CGFloat { min(compact ? 46 : 60, width * 0.66) }
+    /// 统一的图标边长；选中态不再乘放大系数。
+    private var iconSize: CGFloat {
+        min(compact ? Layout.compactMaxIconSize : Layout.maxIconSize, width * Layout.iconWidthRatio)
+    }
 
     /// 滚轮位置（以“中间项”为 0 的浮点下标）；拖拽时跟手。
     @State private var wheelPosition: CGFloat = 0
     @State private var dragStartPosition: CGFloat?
     @State private var isDragging = false
-
-    /// 相簿图标只在 `icon_folder_*` 系列里选；命名集中在这里，替换素材只改这一处。
-    private static let folderIcons = [
-        "icon_folder_album",
-        "icon_folder_cat",
-        "icon_folder_flower",
-        "icon_folder_food",
-        "icon_folder_scenery"
-    ]
+    /// 每次落定自增，驱动选中项「放大一下」的回弹动效。
+    @State private var selectionPulseToken = 0
 
     var body: some View {
         // 延后入口已移到设置页：这里只剩滚轮本体，滚轮中心与左右栏同一套整行居中。
@@ -101,28 +103,20 @@ struct FavoriteAlbumColumn: View {
             // 手势只挂在这个明确尺寸的容器上：不会越出右栏，也不会漏到中央按钮。
             ZStack {
                 // 无限循环：每一本相簿按“圈数”重复摆放，滚动位置不做边界限制。
-                // 渲染窗口里总有内容，跨过首尾时是另一圈的同一本接上，
-                // 旧的那份径向距离变大后自然缩淡，不会跳位。
+                // 渲染窗口里总有内容，跨过首尾时是另一圈的同一本接上，不会跳位。
                 ForEach(laps, id: \.self) { lap in
                     ForEach(Array(albums.enumerated()), id: \.element.id) { index, album in
                         let delta = CGFloat(index + lap * albums.count) - wheelPosition
                         // 只渲染窗口内的行，远处行直接跳过。
-                        if abs(delta) < Ring.renderRange {
-                            row(album, delta: delta)
+                        if abs(delta) < Layout.renderRange {
+                            row(album)
                                 .frame(width: proxy.size.width, height: rh)
-                                // 沿大圆弧排布：竖直按行距、水平按圆方程向右弯。
-                                .offset(arcOffset(delta: delta, rowHeight: rh))
-                                .scaleEffect(rowScale(delta))
-                                .opacity(rowOpacity(delta))
-                                .rotation3DEffect(
-                                    .degrees(Double(min(abs(delta), 3)) * (delta < 0 ? 9 : -9)),
-                                    axis: (x: 1, y: 0, z: 0),
-                                    anchor: .center,
-                                    perspective: 0.55
-                                )
+                                // 纯上下滚动：只按行距做纵向位移，没有横向弧线，
+                                // 也没有 3D 透视 / 逐行缩放 / 逐行透明度。
+                                .offset(y: delta * rh)
                                 .zIndex(1000 - Double(abs(delta)))
                                 // 循环用的重复圈只给中心那份做无障碍元素。
-                                .accessibilityHidden(lap != 0 || abs(delta) > Ring.renderRange - 0.4)
+                                .accessibilityHidden(lap != 0 || abs(delta) > Layout.renderRange - 0.4)
                                 .accessibilityLabel("\(album.title)，\(album.count) 张")
                                 .accessibilityHint(album.id == selectedAlbumID ? "当前收藏夹" : "点按设为当前收藏夹")
                                 .accessibilityAddTraits(album.id == selectedAlbumID ? [.isButton, .isSelected] : .isButton)
@@ -138,7 +132,7 @@ struct FavoriteAlbumColumn: View {
             .gesture(dragGesture(rowHeight: rh), including: isScrollable ? .all : .none)
             .simultaneousGesture(
                 // 点按由容器统一换算成最近的一行：单行不再各自铺满整宽的可点区域。
-                // 行距与 delta 严格线性，弧线只改变绘制位置，所以纵向换算依然有效。
+                // 行距与 delta 严格线性，所以纵向换算依然有效。
                 SpatialTapGesture()
                     .onEnded { value in
                         guard !isDragging, isScrollable else { return }
@@ -147,14 +141,14 @@ struct FavoriteAlbumColumn: View {
                     },
                 including: isScrollable ? .all : .none
             )
-            // 裁掉缩放/透视向外溢出的部分，视觉与命中都严格收在右栏内。
+            // 裁掉选中回弹向外溢出的部分，视觉与命中都严格收在右栏内。
             .clipped()
             .mask(
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black, location: Ring.edgeFade),
-                        .init(color: .black, location: 1 - Ring.edgeFade),
+                        .init(color: .black, location: Layout.edgeFade),
+                        .init(color: .black, location: 1 - Layout.edgeFade),
                         .init(color: .clear, location: 1)
                     ],
                     startPoint: .top,
@@ -209,40 +203,62 @@ struct FavoriteAlbumColumn: View {
                     }
                 }
                 commitSelection(at: Int(target))
+                // 落定即回弹一次；震动仍由外部 selectDefaultAlbum 触发。
+                selectionPulseToken += 1
             }
     }
 
     // MARK: - 行
 
-    private func row(_ album: AlbumItem, delta: CGFloat) -> some View {
+    private func row(_ album: AlbumItem) -> some View {
         let isSelected = album.id == selectedAlbumID
-        // 选中项图标放大 25%（相对基础 58），不再叠加整体缩放去放大文字。
-        let iconSize = baseIconSize * (isSelected ? Ring.selectedIconScale : 1)
 
         return VStack(spacing: 5) {
-            Image(folderIconName(for: album.id))
-                .resizable()
-                .scaledToFit()
-                .frame(width: iconSize, height: iconSize * 0.88)
-                .opacity(isSelected ? 1 : 0.84)
-                .shadow(color: .black.opacity(0.16), radius: 4, x: 0, y: 3)
-                .overlay(alignment: .topTrailing) {
-                    // 数量徽章贴在图标右上角内侧，避免被滚动容器的裁剪切掉。
-                    countBadge(album.count)
-                        .offset(x: 6, y: -5)
+            // 五本相簿的图标、封面与徽章尺寸完全一致；选中只换贴图 + 一次回弹。
+            ZStack {
+                Image(isSelected ? "icon_folder_selected" : "icon_folder")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: iconSize, height: iconSize)
+                    .shadow(color: .black.opacity(0.16), radius: 4, x: 0, y: 3)
+
+                FavoriteAlbumCover(
+                    localID: album.coverLocalID,
+                    thumbnails: thumbnails,
+                    width: iconSize * Layout.coverWidthRatio
+                )
+                .offset(y: iconSize * Layout.coverCenterYRatio)
+            }
+            .overlay(alignment: .topTrailing) {
+                // 数量徽章贴在图标右上角内侧，避免被滚动容器的裁剪切掉。
+                countBadge(album.count)
+                    .offset(x: 6, y: -5)
+            }
+            .background {
+                if isSelected {
+                    Circle()
+                        .fill(Theme.Device.door.opacity(0.20))
+                        .frame(width: iconSize * 1.3, height: iconSize * 1.3)
+                        .blur(radius: 10)
                 }
-                .background {
-                    if isSelected {
-                        Circle()
-                            .fill(Theme.Accent.brass.opacity(0.20))
-                            .frame(width: iconSize * 1.3, height: iconSize * 1.3)
-                            .blur(radius: 10)
-                    }
+            }
+            .keyframeAnimator(
+                initialValue: SelectionPulse(),
+                trigger: selectionPulseToken
+            ) { content, value in
+                content.scaleEffect(isSelected ? value.scale : 1)
+            } keyframes: { _ in
+                let amplitude: CGFloat = reduceMotion ? 0 : 1
+                KeyframeTrack(\.scale) {
+                    CubicKeyframe(1, duration: 0.02)
+                    CubicKeyframe(1 + (Layout.selectionPop - 1) * amplitude, duration: 0.12)
+                    CubicKeyframe(1, duration: 0.20)
                 }
+            }
 
             Text(album.title)
                 .font(.system(size: compact ? 10 : 11, weight: .semibold))
-                .foregroundStyle(isSelected ? Theme.Accent.brass : Theme.Text.primary)
+                .foregroundStyle(isSelected ? Theme.Device.door : Theme.Text.primary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .truncationMode(.tail)
@@ -252,23 +268,24 @@ struct FavoriteAlbumColumn: View {
         .padding(.horizontal, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        // 选中只靠图标放大 + 提亮表达，不画描边/选中带；这里只保留飞入时的轻微脉冲。
+        // 飞入时的轻微脉冲与「选中回弹」是两条独立通道，互不影响。
         .scaleEffect(isSelected && isReceiving ? 1.06 : 1)
         .shadow(
-            color: isSelected && isReceiving ? Theme.Accent.brass.opacity(0.5) : .clear,
+            color: isSelected && isReceiving ? Theme.Device.door.opacity(0.5) : .clear,
             radius: 8
         )
         .animation(
             reduceMotion ? .easeOut(duration: 0.14) : .spring(response: 0.3, dampingFraction: 0.7),
             value: isReceiving
         )
-        .animation(
-            Theme.Motion.animation(.spring, reduceMotion: reduceMotion),
-            value: isSelected
-        )
     }
 
-    /// 相簿照片数量徽章：只显示数字，不再加载封面缩略图。
+    /// 选中回弹的可动画量；只放大一下，随后回到 1 保持统一大小。
+    private struct SelectionPulse {
+        var scale: CGFloat = 1
+    }
+
+    /// 相簿照片数量徽章：只显示数字，封面缩略图另画在前盖中央。
     private func countBadge(_ count: Int) -> some View {
         Text(count > 999 ? "999+" : "\(count)")
             .font(.system(size: 9, weight: .bold).monospacedDigit())
@@ -295,55 +312,14 @@ struct FavoriteAlbumColumn: View {
         .padding(.vertical, Theme.Spacing.md)
     }
 
-    // MARK: - 图标
-
-    /// 按相簿 ID 稳定选图标：同一次安装、同一本相簿每次都一样，不随刷新变化。
-    private func folderIconName(for id: String) -> String {
-        Self.folderIcons[Self.stableHash(id) % Self.folderIcons.count]
-    }
-
-    /// FNV-1a：不依赖 Swift 每次启动都会变的 `hashValue`。
-    private static func stableHash(_ value: String) -> Int {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return Int(truncatingIfNeeded: hash) & 0x7fff_ffff
-    }
-
     // MARK: - 滚轮计算
 
     /// 需要重复摆放的圈数：窗口比一圈还高时，同一本相簿会在上下同时出现，
     /// 这样跨首尾是“另一份逐渐淡入/淡出”，而不是同一项突然跳位。
     private var laps: [Int] {
         guard albums.count > 1 else { return [0] }
-        let extra = Int((Ring.renderRange / CGFloat(albums.count)).rounded(.up))
+        let extra = Int((Layout.renderRange / CGFloat(albums.count)).rounded(.up))
         return Array(-extra...extra)
-    }
-
-    /// 圆弧落点：竖直方向严格保持「行距 × 下标差」，
-    /// 水平方向按「圆心在栏中心右侧 Ring.radius 处」的圆方程向右弯。
-    /// 中间项正好落在栏中心，越往上下两端越靠右，形成挂在右侧的大环。
-    private func arcOffset(delta: CGFloat, rowHeight: CGFloat) -> CGSize {
-        let dy = delta * rowHeight
-        let limit = Ring.radius * Ring.maxSin
-        let cappedDy = min(max(-limit, dy), limit)
-        // dx = R - √(R² - dy²)：圆心在右边，圆上的点只会相对圆心向左，越远越靠右。
-        let dx = Ring.radius - (Ring.radius * Ring.radius - cappedDy * cappedDy).squareRoot()
-        // 端头再加一点额外右移（按可见半程线性给），让环更明显。
-        let extraRight = Ring.edgeExtraRight * min(abs(delta) / (Ring.visibleRows / 2), 1)
-        return CGSize(width: dx + extraRight, height: dy)
-    }
-
-    private func rowScale(_ delta: CGFloat) -> CGFloat {
-        // 边缘行（|delta|≈2）只缩到 0.9，避免被压得过小。
-        max(0.84, 1 - abs(delta) * 0.05)
-    }
-
-    private func rowOpacity(_ delta: CGFloat) -> Double {
-        // 边缘行保留 0.6 以上，配合更窄的上下遮罩，两端干净地消失在容器边缘。
-        max(0.6, 1 - Double(abs(delta)) * 0.13)
     }
 
     /// 把任意下标折回 0..<count（无限循环用）。
@@ -367,6 +343,7 @@ struct FavoriteAlbumColumn: View {
             }
         }
         commitSelection(at: wrapped)
+        selectionPulseToken += 1
     }
 
     private func commitSelection(at index: Int) {
@@ -421,17 +398,67 @@ struct FavoriteAlbumColumn: View {
     }
 }
 
+/// 文件夹前盖中央的封面缩略图：4:3 比例裁切 + 2pt 白边。
+/// 空相簿或加载中保持凹陷底槽，不闪白、不撑大图标。
+private struct FavoriteAlbumCover: View {
+    let localID: String?
+    let thumbnails: ThumbnailProvider
+    /// 内容区宽度；高度固定为宽度的 3/4。
+    let width: CGFloat
+
+    @State private var image: UIImage?
+
+    private var contentHeight: CGFloat { width * 3 / 4 }
+
+    var body: some View {
+        ZStack {
+            Theme.Surface.sunken
+
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    // 4:3 取景：等比放大填满后裁掉多余部分，不拉伸照片。
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: max(9, width * 0.24), weight: .regular))
+                    .foregroundStyle(Theme.Text.tertiary)
+            }
+        }
+        .frame(width: width, height: contentHeight)
+        .clipped()
+        .padding(2)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+        .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
+        .accessibilityHidden(true)
+        .task(id: localID) {
+            guard let localID else {
+                image = nil
+                return
+            }
+            let scale = UIScreen.main.scale
+            image = await thumbnails.image(
+                for: localID,
+                targetSize: CGSize(width: width * scale, height: contentHeight * scale)
+            )
+        }
+    }
+}
+
 #Preview {
     FavoriteAlbumColumn(
         width: 78,
         albums: [
-            AlbumItem(id: "1", title: "旅行", kind: .user, count: 32, symbolName: "folder"),
-            AlbumItem(id: "2", title: "家人合影", kind: .user, count: 108, symbolName: "folder"),
-            AlbumItem(id: "3", title: "截图整理", kind: .user, count: 12, symbolName: "folder"),
-            AlbumItem(id: "4", title: "壁纸", kind: .user, count: 64, symbolName: "folder")
+            AlbumItem(id: "1", title: "旅行", kind: .user, count: 32, symbolName: "folder", coverLocalID: "ui-test-photo-01"),
+            AlbumItem(id: "2", title: "家人合影", kind: .user, count: 108, symbolName: "folder", coverLocalID: "ui-test-photo-02"),
+            AlbumItem(id: "3", title: "截图整理", kind: .user, count: 12, symbolName: "folder", coverLocalID: "ui-test-photo-03"),
+            AlbumItem(id: "4", title: "壁纸", kind: .user, count: 64, symbolName: "folder", coverLocalID: "ui-test-photo-04"),
+            AlbumItem(id: "5", title: "美食", kind: .user, count: 27, symbolName: "folder", coverLocalID: "ui-test-photo-05")
         ],
-        selectedAlbumID: "2",
+        selectedAlbumID: "3",
         isReceiving: false,
+        thumbnails: ThumbnailProvider(),
         onSelect: { _ in }
     )
     .frame(height: 520)

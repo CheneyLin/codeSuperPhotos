@@ -12,6 +12,9 @@ struct AlbumItem: Identifiable, Equatable, Sendable {
     let kind: Kind
     let count: Int
     let symbolName: String
+    /// 相簿封面（最新一张照片）的 localIdentifier；空相簿为 nil。
+    /// 收藏夹选择器据此取 4:3 缩略图，其余相簿列表不消费这个字段。
+    var coverLocalID: String? = nil
 }
 
 enum AlbumEditError: LocalizedError {
@@ -104,7 +107,9 @@ final class AlbumService {
                     title: collection.localizedTitle ?? "未命名相簿",
                     kind: .user,
                     count: count,
-                    symbolName: "folder"
+                    symbolName: "folder",
+                    // 封面取最新一张；空相簿保持 nil，选择器画占位底槽。
+                    coverLocalID: Self.coverIdentifier(in: collection, predicate: options.predicate)
                 )
             )
         }
@@ -112,6 +117,16 @@ final class AlbumService {
 
         hasLoaded = true
         await refreshUncategorized()
+    }
+
+    /// 相簿封面：按创建日期倒序取第一张可见照片，只回 ID 不解码图片。
+    /// fetchLimit = 1，即使相簿里有几千张也只命中一行。
+    private static func coverIdentifier(in collection: PHAssetCollection, predicate: NSPredicate?) -> String? {
+        let options = PHFetchOptions()
+        options.predicate = predicate
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        options.fetchLimit = 1
+        return PHAsset.fetchAssets(in: collection, options: options).firstObject?.localIdentifier
     }
 
     /// 重算「未归类照片」。

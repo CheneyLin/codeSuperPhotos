@@ -544,6 +544,7 @@ struct HomeView: View {
                             albums: albumService.userAlbums,
                             selectedAlbumID: settings.defaultAlbumID,
                             isReceiving: favoritesReceiving,
+                            thumbnails: library.thumbnails,
                             onSelect: { selectDefaultAlbum($0) }
                         )
                         .frame(height: rowHeight)
