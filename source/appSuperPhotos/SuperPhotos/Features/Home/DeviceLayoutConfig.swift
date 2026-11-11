@@ -35,6 +35,7 @@
 import SwiftUI
 import UIKit
 
+let is_iPad = UIDevice.current.userInterfaceIdiom == .pad
 // MARK: - 形态判定
 
 /// 七种布局形态。Duo 以铰链状态为权威值，不靠尺寸猜；书本姿态归入内屏横 / 竖。
@@ -84,6 +85,14 @@ struct SceneryAssets: Equatable, Sendable {
         light: "scenery_background_light_duo_inner_l",
         dark: "scenery_background_dark_duo_inner_l"
     )
+    static let iPadPortrait = SceneryAssets(
+        light: "scenery_background_light_ipad_p",
+        dark: "scenery_background_dark_ipad_p"
+    )
+    static let iPadLandscape = SceneryAssets(
+        light: "scenery_background_light_ipad_l",
+        dark: "scenery_background_dark_ipad_l"
+    )
 }
 
 /// 收藏夹滚轮：一屏可见行数 + 图标尺寸 + 两档字号。
@@ -129,15 +138,19 @@ enum DeviceLayoutConfig {
 
     /// 原尺寸档：普通 iPhone 竖屏 / Duo 外屏 / Duo 内屏竖向。
     private static let compactFavorites = FavoriteSettings(
-        rows: 5, iconSize: 58, titleSize: 11, badgeSize: 9
+        rows: 5, iconSize: 64, titleSize: 11, badgeSize: 9
     )
     /// 放大档：任意横屏。
-    private static let largeLandscapeFavorites = FavoriteSettings(
+    private static let favoritesiPadLandscape = FavoriteSettings(
         rows: 3, iconSize: 114, titleSize: 13, badgeSize: 11
     )
     /// 放大档（保留 5 行）：iPad 竖屏。
-    private static let largePortraitFavorites = FavoriteSettings(
+    private static let favoritesiPadPortrait = FavoriteSettings(
         rows: 5, iconSize: 114, titleSize: 13, badgeSize: 11
+    )
+    /// 放大档：任意横屏。
+    private static let favoritesDuoOuter = FavoriteSettings(
+        rows: 3, iconSize: 114, titleSize: 13, badgeSize: 11
     )
     /// DuoInnerLandscape
     private static let favoritesDuoInnerLandscape = FavoriteSettings(
@@ -153,11 +166,14 @@ enum DeviceLayoutConfig {
 
     /// 默认三区：中间区占满容器（等价于旧的 1.44 倍行高被屏高钳住后的结果）。
     /// 想给顶栏 / 道具区留出专门空间，替换成例如 `ZoneRatios(top: 1, middle: 7, bottom: 2)`。
-    private static let fullMiddleZones = ZoneRatios(top: 0, middle: 1, bottom: 0)
+    private static let fullMiddleZones = ZoneRatios(top: 2, middle: 65, bottom: 33)
+    
     private static let fullMiddleZonesDuoOuter = ZoneRatios(top: 0, middle: 14, bottom: 5)
-    private static let fullMiddleZonesDuoInnerLandscape = ZoneRatios(top: 0, middle: 14, bottom: 5)
     private static let fullMiddleZonesDuoInnerPortrait = ZoneRatios(top: 0, middle: 80, bottom: 20)
-
+    private static let fullMiddleZonesDuoInnerLandscape = ZoneRatios(top: 0, middle: 14, bottom: 5)
+    
+    private static let fullMiddleZonesiPadPortrait = ZoneRatios(top: 10, middle: 80, bottom: 10)
+    private static let fullMiddleZonesiPadLandscape = ZoneRatios(top: 0, middle: 14, bottom: 5)
     // MARK: 七个形态 —— 只改下面这些数值
 
     static let iPhonePortrait = DeviceLayoutEntry(
@@ -170,28 +186,28 @@ enum DeviceLayoutConfig {
     static let iPhoneLandscape = DeviceLayoutEntry(
         form: .iPhoneLandscape,
         background: standardBackground,
-        favorites: largeLandscapeFavorites,
+        favorites: favoritesDuoOuter,
         zones: fullMiddleZones
     )
 
     static let iPadPortrait = DeviceLayoutEntry(
         form: .iPadPortrait,
-        background: standardBackground,
-        favorites: largePortraitFavorites,
-        zones: fullMiddleZones
+        background: SceneryAssets.iPadPortrait,
+        favorites: favoritesiPadPortrait,
+        zones: fullMiddleZonesiPadPortrait
     )
 
     static let iPadLandscape = DeviceLayoutEntry(
         form: .iPadLandscape,
-        background: standardBackground,
-        favorites: largeLandscapeFavorites,
-        zones: fullMiddleZones
+        background: SceneryAssets.iPadLandscape,
+        favorites: favoritesiPadLandscape,
+        zones: fullMiddleZonesiPadLandscape
     )
 
     static let duoOuterScreen = DeviceLayoutEntry(
         form: .duoOuterScreen,
         background: SceneryAssets.duoOuter,
-        favorites: largeLandscapeFavorites,
+        favorites: favoritesDuoOuter,
         zones: fullMiddleZonesDuoOuter
     )
 

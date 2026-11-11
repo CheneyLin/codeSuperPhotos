@@ -12,7 +12,7 @@ enum LCDSpec {
     /// 393 宽屏上还剩 153pt 给两侧，各约 68pt，正好放得下 64pt 的圆形操作按钮。
     /// 300 宽时两侧只剩 46.5pt，放不下按钮，所以收到 240。
     static let displayWidth: CGFloat = 260
-    /// 左右按钮区的最小宽度：与 `PegboardActionButton` 的 64pt 命中框一致。
+    /// 左右按钮区的最小宽度：与 `PegboardHookButton`（圆形图标按钮）的 64pt 命中框一致。
     /// 两侧区等宽弹性分配，LCD 因此始终精确居中。
     static let sideButtonWidth: CGFloat = 64
     /// 顶部整行的左右外边距。8pt 时 393 宽屏按钮中心落在约 42pt，
@@ -156,13 +156,13 @@ struct LCDScreen: View {
     private var assetName: String {
         switch (isProgress, colorScheme) {
         case (true, .dark):
-            return "lcdProgressDark"
+            return "lcd_progress_dark"
         case (true, _):
-            return "lcdProgressLight"
+            return "lcd_progress_light"
         case (false, .dark):
-            return "lcdIdleDark"
+            return "lcd_idle_dark"
         case (false, _):
-            return "lcdIdleLight"
+            return "lcd_idle_light"
         }
     }
 

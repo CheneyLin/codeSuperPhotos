@@ -316,23 +316,27 @@ struct HomeView: View {
     @ViewBuilder
     private var headerLeftButton: some View {
         if showsStage {
-            PegboardActionButton(
+            PegboardHookButton(
                 assetName: "icon_undo",
-                accessibilityTitle: "撤销上一步",
-                accessibilityHintText: "把最近一次决定退回舞台，并恢复对应的待销毁或待加密计数",
-                isEnabled: task.canUndo && !isExecutingTaskEnd
+                title: "撤销上一步",
+                iconSize: 60,
+                isEnabled: task.canUndo && !isExecutingTaskEnd,
+                disabledAssetName: "icon_undo_disable",
+                accessibilityHintText: "把最近一次决定退回舞台，并恢复对应的待销毁或待加密计数"
             ) {
                 undoLastStep()
             }
+            .offset(x:6,y:0)
         } else {
             PegboardHookButton(
                 assetName: "icon_vault_keys",
                 title: "私密保险箱，已存 \(vault.records.count) 件",
+                iconSize: 64,
                 swayToken: keySwayToken
             ) {
                 openVault()
             }
-            .offset(x:8,y:8)
+            .offset(x:12,y:8)
         }
     }
 
@@ -340,22 +344,25 @@ struct HomeView: View {
     @ViewBuilder
     private var headerRightButton: some View {
         if showsStage {
-            PegboardActionButton(
-                assetName: "icon_stop",
-                accessibilityTitle: "结束并结算",
-                accessibilityHintText: "未处理的照片按保留处理，随后进入结算",
-                isEnabled: !isExecutingTaskEnd && !task.isFinished
+            PegboardHookButton(
+                assetName: "icon_finish",
+                title: "结束并结算",
+                iconSize: 60,
+                isEnabled: !isExecutingTaskEnd && !task.isFinished,
+                accessibilityHintText: "未处理的照片按保留处理，随后进入结算"
             ) {
                 finishTaskNow()
             }
+            .offset(x:-8,y:0)
         } else {
             PegboardHookButton(
-                assetName: "icon_tool_screwdriver",
+                assetName: "icon_config",
                 title: "设置",
-                iconSize: 50
+                iconSize: 64
             ) {
                 isSettingsPresented = true
             }
+            .offset(x:0,y:8)
         }
     }
 
@@ -527,8 +534,8 @@ struct HomeView: View {
                         FavoriteAlbumColumn(
                             // 比左侧保险箱宽一档，整体放大；中栏宽度已按这个宽度反推。
                             width: favoriteWidth,
-                            //albums: albumService.userAlbums,
-                            albums: FavoriteAlbumPreviewData.albums,
+                            albums: albumService.userAlbums,
+                            //albums: FavoriteAlbumPreviewData.albums, /// DEBUG
                             selectedAlbumID: settings.defaultAlbumID,
                             isReceiving: favoritesReceiving,
                             thumbnails: library.thumbnails,
@@ -1330,9 +1337,11 @@ struct HomeView: View {
 
         Task {
             do {
-                try await albumService.addAssets([id], toAlbum: albumID)
+                // 移入目标收藏夹的同时，清掉它在其它用户相簿里的归属，
+                // 保证照片只在这一个新的收藏夹里（移动而非追加）。
+                try await albumService.moveAssets([id], toAlbum: albumID)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                showLCDNotice("已加入「\(settings.defaultAlbumTitle)」", tone: .success)
+                showLCDNotice("已移入「\(settings.defaultAlbumTitle)」", tone: .success)
             } catch {
                 toastMessage = ToastMessage(
                     text: error.localizedDescription,

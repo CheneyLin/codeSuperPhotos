@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "lcdIdleDark.png",
+      "filename" : "lcd_idle_dark.png",
       "idiom" : "universal",
       "scale" : "1x"
     },

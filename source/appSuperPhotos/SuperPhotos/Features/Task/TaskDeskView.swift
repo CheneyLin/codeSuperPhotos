@@ -104,7 +104,7 @@ struct TaskDeskView: View {
     private var finishNowButton: some View {
         Button(action: onFinishNow) {
             HStack(spacing: 5) {
-                Image("icon_stop")
+                Image("icon_check_circle")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 14, height: 14)
@@ -128,18 +128,18 @@ struct TaskDeskView: View {
             // 桌面上的天蓝辉光，呼应右侧收藏夹的选中色。
             Ellipse()
                 .fill(Theme.Scenery.sky.opacity(0.22))
-                .frame(width: 166, height: 60)
+                .frame(width: 166 * (is_iPad ? 1.5 : 1.0), height: 60 * (is_iPad ? 1.5 : 1.0))
                 .blur(radius: 20)
                 .offset(y: 54)
 
             Image("icon_photo_stack")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 150, height: 150)
+                .frame(width: 150 * (is_iPad ? 1.5 : 1.0) , height: 150 * (is_iPad ? 1.5 : 1.0))
                 .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 9)
         }
         // 尺寸收在中栏内：外层允许被压缩，窄设备上不会挤到两侧栏。
-        .frame(maxWidth: 168, maxHeight: 190)
+        .frame(maxWidth: 168 * (is_iPad ? 1.5 : 1.0), maxHeight: 190 * (is_iPad ? 1.5 : 1.0))
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

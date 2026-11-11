@@ -220,6 +220,49 @@ final class AlbumService {
         }
     }
 
+    /// 把照片「移入」目标用户相簿：先从其它所有用户自建相簿里移除这些资产，
+    /// 再加入目标相簿，确保它们在任意时刻只归属一个用户相簿。
+    /// 系统智能相簿（收藏 / 视频 / 截图…）不参与清理，也无需清理。
+    func moveAssets(_ localIDs: [String], toAlbum targetAlbumID: String) async throws {
+        guard !localIDs.isEmpty else { return }
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            throw AlbumEditError.notAuthorized
+        }
+        guard let target = PHAssetCollection.fetchAssetCollections(
+            withLocalIdentifiers: [targetAlbumID],
+            options: nil
+        ).firstObject else {
+            throw AlbumEditError.albumMissing
+        }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: localIDs, options: nil)
+        guard assets.count > 0 else { throw AlbumEditError.assetsMissing }
+
+        // 与 userAlbums 同口径：只处理用户自建相簿，跳过系统智能相簿。
+        let userAlbums = PHAssetCollection.fetchAssetCollections(
+            with: .album,
+            subtype: .albumRegular,
+            options: nil
+        )
+        let matchPredicate = NSPredicate(format: "localIdentifier IN %@", localIDs)
+
+        try await PHPhotoLibrary.shared().performChanges {
+            // 1) 从其它用户相簿移除：只删本相簿里属于这批 localIDs 的资产。
+            userAlbums.enumerateObjects { collection, _, _ in
+                guard collection.localIdentifier != targetAlbumID else { return }
+                let options = PHFetchOptions()
+                options.predicate = matchPredicate
+                let contained = PHAsset.fetchAssets(in: collection, options: options)
+                guard contained.count > 0 else { return }
+                guard let request = PHAssetCollectionChangeRequest(for: collection) else { return }
+                request.removeAssets(contained)
+            }
+            // 2) 加入目标相簿（幂等：已在目标内不会重复加入）。
+            guard let addRequest = PHAssetCollectionChangeRequest(for: target) else { return }
+            addRequest.addAssets(assets)
+        }
+    }
+
     private struct SmartDescriptor {
         let subtype: PHAssetCollectionSubtype
         let title: String

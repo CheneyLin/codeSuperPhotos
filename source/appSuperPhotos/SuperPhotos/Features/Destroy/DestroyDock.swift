@@ -8,8 +8,9 @@ import UIKit
 /// - `shakeToken`：照片落入时按当前道具播放专属反馈（晃 / 压 / 燃 / 弹 / 开门）；
 /// - 常驻微动：壁炉火星、碎纸机纸屑、任意门微光， TimelineView 驱动。
 ///
-/// 布局高度恒为 100 + 4 + bottomInset，与旧版纸篓一致；指示点与名称牌
-/// 全部走 overlay，不参与排版，`DockHeightKey` 量到的值不变。
+    /// 布局高度恒为 100 + 4 + bottomInset，与旧版纸篓一致；指示点与名称牌
+    /// 全部走 overlay，不参与排版，`DockHeightKey` 量到的值不变。
+    /// 五点选择指示器与名称牌都在切换后自动渐隐（约 1.4s），静息时不占视觉。
 struct DestroyDock: View {
     /// 本批待删除张数。
     let pendingCount: Int
@@ -29,6 +30,9 @@ struct DestroyDock: View {
 
     @State private var isNameVisible = false
     @State private var nameDismissToken = 0
+    /// 五点选择指示器在切换后自动渐隐；启动即显示，1.4s 后淡出，静息时不占视觉。
+    @State private var pageDotsVisible = true
+    @State private var pageDotsDismissToken = 0
 
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
 
@@ -52,7 +56,7 @@ struct DestroyDock: View {
 
             deviceIcon
         }
-        .frame(width: 132, height: 100)
+        .frame(width: 132 * (is_iPad ? 2.0 : 1.0), height: 100 * (is_iPad ? 2.0 : 1.0))
         .overlay(alignment: .bottom) { pageDots }
         .overlay(alignment: .top) { nameBadge }
         // 命中区只覆盖道具本身，不把整条桌面都变成按钮。
@@ -67,6 +71,8 @@ struct DestroyDock: View {
             guard newValue > 0 else { return }
             isNameVisible = true
             nameDismissToken += 1
+            pageDotsVisible = true
+            pageDotsDismissToken += 1
         }
         .task(id: nameDismissToken) {
             guard isNameVisible else { return }
@@ -76,6 +82,14 @@ struct DestroyDock: View {
                 isNameVisible = false
             }
         }
+        .task(id: pageDotsDismissToken) {
+            guard pageDotsVisible else { return }
+            try? await Task.sleep(for: .milliseconds(1400))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.25)) {
+                pageDotsVisible = false
+            }
+        }
     }
 
     /// 道具本体：素材切换 + 切换弹跳 + 落入反馈三层叠加。
@@ -83,7 +97,7 @@ struct DestroyDock: View {
         Image(machine.assetName)
             .resizable()
             .scaledToFit()
-            .frame(width: 96, height: 96)
+            .frame(width: 96 * (is_iPad ? 2.0 : 1.0), height: 96 * (is_iPad ? 2.0 : 1.0))
             .shadow(color: Theme.Polaroid.shadow, radius: 9, x: 0, y: 6)
             .id(machine)
             .transition(
@@ -190,6 +204,8 @@ struct DestroyDock: View {
         // 指示器落在道具下方的桌面上，比素材底边低 10pt；
         // 走 overlay + offset，不占行高，DockHeightKey 仍量到 100pt。
         .offset(y: 10)
+        .opacity(pageDotsVisible ? 1 : 0)
+        .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.25), value: pageDotsVisible)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

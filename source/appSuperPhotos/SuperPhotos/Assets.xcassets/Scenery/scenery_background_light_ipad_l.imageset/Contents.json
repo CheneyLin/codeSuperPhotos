@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "scenery_background_light_ipad_l.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
@@ -9,7 +10,6 @@
       "scale" : "2x"
     },
     {
-      "filename" : "icon_tool_screwdriver.png",
       "idiom" : "universal",
       "scale" : "3x"
     }

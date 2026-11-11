@@ -73,16 +73,16 @@ enum Theme {
         )
     }
 
-    /// 拍立得相纸：亮色用暖白、暗色用近黑，边距颜色跟随主题，避免暗色下白纸刺眼。
+    /// 拍立得相纸：亮色用暖白、暗色用灰白相纸，贴合宝丽来风格（暗色下不再用近黑）。
     enum Polaroid {
         static let paper = dynamic(
-            light: 0xFBF8F1, dark: 0x1A1D21,
-            lightHighContrast: 0xFFFFFF, darkHighContrast: 0x0D0E10
+            light: 0xFBF8F1, dark: 0xDCD8D0,
+            lightHighContrast: 0xFFFFFF, darkHighContrast: 0xECE8E0
         )
         static let edge = dynamic(
-            light: 0xC9C1B2, dark: 0x2E343B,
+            light: 0xC9C1B2, dark: 0xC6C0B4,
             lightAlpha: 0.55, darkAlpha: 0.9,
-            lightHighContrast: 0x8A8375, darkHighContrast: 0x4A515A
+            lightHighContrast: 0x8A8375, darkHighContrast: 0xB0A99B
         )
         /// 相纸圆角：比旧版 6pt 更圆润
         static let corner: CGFloat = 14

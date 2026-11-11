@@ -4,6 +4,9 @@ import UIKit
 /// 右侧收藏夹区：纯上下滚动的相簿选择器，停在中间的一本即当前收藏夹目标，
 /// 照片右滑时飞入这本相簿。
 ///
+/// 非循环、有边界：相簿只渲染一遍，滚轮位置钳制在 `[0, count-1]`，滑到首尾即停；
+/// 始终有一本居中并处于选中态（不允许「不选择」），首屏默认选中第一项。
+///
 /// 呈现：每行尺寸完全一致；所有相簿共用同一张文件夹贴图
 /// （未选 `icon_folder`，选中 `icon_folder_selected`），文件夹前盖中央嵌一张
 /// 4:3 裁切、带 2pt 白边的封面缩略图，右上角徽章显示张数。
@@ -35,8 +38,8 @@ struct FavoriteAlbumColumn: View {
         static let maxIconWidthRatio: CGFloat = 0.90
         /// 行内给两行标题预留的高度、图标与标题间距、上下安全留白。
         /// 三者合起来是图标的行高钳制量（rowHeight − 50）。
-        static let titleReserve: CGFloat = 34
-        static let rowSpacing: CGFloat = 6
+        static let titleReserve: CGFloat = 24
+        static let rowSpacing: CGFloat = 2
         static let verticalInset: CGFloat = 10
         /// 图标边长下限：极短屏也不会缩成看不见。
         static let minIconSize: CGFloat = 24
@@ -79,7 +82,7 @@ struct FavoriteAlbumColumn: View {
         return max(Layout.minIconSize, min(config.iconSize, widthBound, heightBound))
     }
 
-    /// 滚轮位置（以“中间项”为 0 的浮点下标）；拖拽时跟手。
+    /// 滚轮位置（以“中间项”为 0 的浮点下标，范围 `[0, count-1]`，非循环、有边界）。
     @State private var wheelPosition: CGFloat = 0
     @State private var dragStartPosition: CGFloat?
     @State private var isDragging = false
@@ -108,8 +111,13 @@ struct FavoriteAlbumColumn: View {
             }
         }
         .onChange(of: albums) { _, _ in
-            wrapWheelPosition()
-            syncWheel(animated: false)
+            // 列表变化后重新对齐到当前选择；若当前选择已失效，回退到第一项
+            // （收藏夹不允许「不选择」状态）。
+            if let id = selectedAlbumID, albums.contains(where: { $0.id == id }) {
+                syncWheel(animated: false)
+            } else if let first = albums.first {
+                onSelect(first)
+            }
         }
     }
 
@@ -122,28 +130,25 @@ struct FavoriteAlbumColumn: View {
             let isScrollable = albums.count > 1
             // 手势只挂在这个明确尺寸的容器上：不会越出右栏，也不会漏到中央按钮。
             ZStack {
-                // 无限循环：每一本相簿按“圈数”重复摆放，滚动位置不做边界限制。
-                // 渲染窗口里总有内容，跨过首尾时是另一圈的同一本接上，不会跳位。
-                ForEach(laps, id: \.self) { lap in
-                    ForEach(Array(albums.enumerated()), id: \.element.id) { index, album in
-                        let delta = CGFloat(index + lap * albums.count) - wheelPosition
-                        // 只渲染窗口内的行，远处行直接跳过。
-                        if abs(delta) < renderRange {
-                            row(album, rowHeight: rh)
-                                .frame(width: proxy.size.width, height: rh)
-                                // 纯上下滚动：只按行距做纵向位移，没有横向弧线，
-                                // 也没有 3D 透视 / 逐行缩放 / 逐行透明度。
-                                .offset(y: delta * rh)
-                                .zIndex(1000 - Double(abs(delta)))
-                                // 循环用的重复圈只给中心那份做无障碍元素。
-                                .accessibilityHidden(lap != 0 || abs(delta) > renderRange - 0.4)
-                                .accessibilityLabel("\(album.title)，\(album.count) 张")
-                                .accessibilityHint(album.id == selectedAlbumID ? "当前收藏夹" : "点按设为当前收藏夹")
-                                .accessibilityAddTraits(album.id == selectedAlbumID ? [.isButton, .isSelected] : .isButton)
-                                .accessibilityAction {
-                                    settle(to: index)
-                                }
-                        }
+                // 非循环：每一本相簿只渲染一次，滚轮位置钳制在 [0, count-1]，
+                // 滑到首尾即停，不会重复、不会跳位。
+                ForEach(Array(albums.enumerated()), id: \.element.id) { index, album in
+                    let delta = CGFloat(index) - wheelPosition
+                    // 只渲染窗口内的行，远处行直接跳过。
+                    if abs(delta) < renderRange {
+                        row(album, rowHeight: rh)
+                            .frame(width: proxy.size.width, height: rh)
+                            // 纯上下滚动：只按行距做纵向位移，没有横向弧线，
+                            // 也没有 3D 透视 / 逐行缩放 / 逐行透明度。
+                            .offset(y: delta * rh)
+                            .zIndex(1000 - Double(abs(delta)))
+                            .accessibilityHidden(abs(delta) > renderRange - 0.4)
+                            .accessibilityLabel("\(album.title)，\(album.count) 张")
+                            .accessibilityHint(album.id == selectedAlbumID ? "当前收藏夹" : "点按设为当前收藏夹")
+                            .accessibilityAddTraits(album.id == selectedAlbumID ? [.isButton, .isSelected] : .isButton)
+                            .accessibilityAction {
+                                settle(to: index)
+                            }
                     }
                 }
             }
@@ -205,14 +210,16 @@ struct FavoriteAlbumColumn: View {
                 }
                 let base = dragStartPosition ?? wheelPosition
                 // 手指下滑 = 内容下移 = 更靠前的相簿转到中间。
-                // 无限循环：位置不做边界限制，越过首尾由渲染时的重复圈接上。
-                wheelPosition = base - value.translation.height / rowHeight
+                // 非循环：位置钳制在 [0, count-1]，越过首尾停在原地（不允许滑出）。
+                let raw = base - value.translation.height / rowHeight
+                wheelPosition = min(maxPosition, max(0, raw))
             }
             .onEnded { value in
                 let base = dragStartPosition ?? wheelPosition
                 // 轻甩时按预测位移多走几格，滚轮才有惯性。
                 let predicted = base - value.predictedEndTranslation.height / rowHeight
-                let target = predicted.rounded()
+                // 非循环：落点同样钳制在 [0, count-1] 边界内。
+                let target = min(maxPosition, max(0, predicted.rounded()))
                 dragStartPosition = nil
                 isDragging = false
                 if reduceMotion {
@@ -312,8 +319,10 @@ struct FavoriteAlbumColumn: View {
     }
 
     /// 相簿照片数量徽章：只显示数字，封面缩略图另画在前盖中央。
+    /// 小于 10000 显示完整数字；大于等于 10000 折叠为「10k+」。
     private func countBadge(_ count: Int, iconSize: CGFloat) -> some View {
-        return Text(count > 999 ? "999+" : "\(count)")
+        let label = count >= 10000 ? "10k+" : "\(count)"
+        return Text(label)
             .font(.system(size: config.badgeSize, weight: .bold).monospacedDigit())
             .foregroundStyle(Theme.Text.onWhite)
             .padding(.horizontal, 4)
@@ -343,27 +352,20 @@ struct FavoriteAlbumColumn: View {
 
     // MARK: - 滚轮计算
 
-    /// 需要重复摆放的圈数：窗口比一圈还高时，同一本相簿会在上下同时出现，
-    /// 这样跨首尾是“另一份逐渐淡入/淡出”，而不是同一项突然跳位。
-    private var laps: [Int] {
-        guard albums.count > 1 else { return [0] }
-        let extra = Int((renderRange / CGFloat(albums.count)).rounded(.up))
-        return Array(-extra...extra)
-    }
+    /// 非循环：滚轮位置被钳制在 `[0, count-1]`，首尾就是边界，不重复摆放。
+    private var maxPosition: CGFloat { CGFloat(max(0, albums.count - 1)) }
 
-    /// 把任意下标折回 0..<count（无限循环用）。
-    private func wrappedIndex(_ index: Int) -> Int {
+    /// 把任意下标钳制到合法范围 `[0, count-1]`（非循环：越界直接停在首尾）。
+    private func clampedIndex(_ index: Int) -> Int {
         guard !albums.isEmpty else { return 0 }
-        let count = albums.count
-        return ((index % count) + count) % count
+        return min(max(0, index), albums.count - 1)
     }
 
-    /// 点按或无障碍调节：把指定行转到离当前位置最近的那一圈并提交。
+    /// 点按或无障碍调节：把指定行转到中间并提交（已钳制在 `[0, count-1]` 边界）。
     private func settle(to index: Int) {
-        guard albums.count > 0 else { return }
-        guard albums.count > 1 else { return }
-        let wrapped = wrappedIndex(index)
-        let target = nearestPosition(forIndex: wrapped)
+        guard !albums.isEmpty else { return }
+        let clamped = clampedIndex(index)
+        let target = CGFloat(clamped)
         if reduceMotion {
             wheelPosition = target
         } else {
@@ -371,25 +373,20 @@ struct FavoriteAlbumColumn: View {
                 wheelPosition = target
             }
         }
-        commitSelection(at: wrapped)
+        commitSelection(at: clamped)
         selectionPulseToken += 1
     }
 
     private func commitSelection(at index: Int) {
         guard !albums.isEmpty else { return }
-        let album = albums[wrappedIndex(index)]
+        let album = albums[clampedIndex(index)]
         guard album.id != selectedAlbumID else { return }
         onSelect(album)
     }
 
-    /// 同一本相簿在环上有无数个落点，取离当前位置最近的那个：
-    /// 外部改选时只就近转一小段，不会绕整圈。
+    /// 非循环：滚轮位置即相簿下标本身（范围 `[0, count-1]`），无需按圈取最近落点。
     private func nearestPosition(forIndex index: Int) -> CGFloat {
-        guard albums.count > 1 else { return CGFloat(index) }
-        let count = CGFloat(albums.count)
-        let base = CGFloat(index)
-        let turns = ((wheelPosition - base) / count).rounded()
-        return base + turns * count
+        CGFloat(clampedIndex(index))
     }
 
     /// 让滚轮对齐当前默认相簿；列表首次加载、外部改选、相簿增删时调用。
@@ -407,22 +404,9 @@ struct FavoriteAlbumColumn: View {
         }
     }
 
-    /// 把位置折回一圈内，保持数值不越滚越大。
-    /// 平移整圈对渲染没有影响（重复圈会接上），所以这一步在视觉上是无缝的。
-    private func wrapWheelPosition() {
-        guard !albums.isEmpty else {
-            wheelPosition = 0
-            return
-        }
-        let count = CGFloat(albums.count)
-        var position = wheelPosition.truncatingRemainder(dividingBy: count)
-        if position < 0 { position += count }
-        wheelPosition = position
-    }
-
     private var currentAccessibilityValue: String {
         guard !albums.isEmpty else { return "无相簿" }
-        let album = albums[wrappedIndex(Int(wheelPosition.rounded()))]
+        let album = albums[clampedIndex(Int(wheelPosition.rounded()))]
         return "\(album.title)，\(album.count) 张"
     }
 }
