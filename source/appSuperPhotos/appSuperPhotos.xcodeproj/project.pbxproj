@@ -270,6 +270,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SuperPhotos;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "用于把保险箱中的照片恢复到相簿。";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SuperPhotos 需要访问你的相簿，以便浏览、整理照片，并把照片存入保险箱。";
 				INFOPLIST_KEY_PHPhotoLibraryPreventAutomaticLimitedAccessAlert = YES;
@@ -317,6 +318,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SuperPhotos;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "用于把保险箱中的照片恢复到相簿。";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SuperPhotos 需要访问你的相簿，以便浏览、整理照片，并把照片存入保险箱。";
 				INFOPLIST_KEY_PHPhotoLibraryPreventAutomaticLimitedAccessAlert = YES;

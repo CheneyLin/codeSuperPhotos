@@ -43,12 +43,12 @@
 "碎纸机" = "Shredder";
 "壁炉" = "Fireplace";
 "邮筒" = "Mailbox";
-"任意门" = "Anywhere Door";
+"任意门" = "Magic Door";
 "投进废纸篓" = "Drop into Trash Bin";
 "送进碎纸机" = "Feed into Shredder";
 "投入壁炉" = "Burn in Fireplace";
 "寄进邮筒" = "Mail in Mailbox";
-"送进任意门" = "Send via Anywhere Door";
+"送进任意门" = "Send via Magic Door";
 "照片" = "Photos";
 "视频" = "Videos";
 "实况照片" = "Live Photos";
@@ -114,7 +114,7 @@
 "全部恢复，将出现在下一批" = "All recovered. They will appear in the next batch.";
 "已移入「%@」" = "Moved to “%@”";
 "已存入保险箱，结算时加密" = "Saved to the vault; it will be encrypted at settlement.";
-"已加入待销毁 · %@ 张" = "Added to pending deletion · %@ photos";
+"已加入待销毁 · %@ 张" = "Added to pending del · %@ photos";
 "测试相簿" = "Test Album";
 "%@，%@ 张" = "%@, %@ photos";
 "当前收藏夹" = "Current Favorites";
@@ -352,7 +352,7 @@
 "轻点全屏 · 上滑延后 · 左滑保险箱 · 右滑收藏夹 · 下滑删除" = "Tap full screen · Swipe up snooze · Left vault · Right favorites · Down delete";
 "暂停整理" = "Pause Cleanup";
 "保留当前进度并返回桌面" = "Keep current progress and return to the desk";
-"待删除 %@ 张" = "%@ photos pending deletion";
+"待删除 %@ 张" = "%@ pending del";
 "待删除 %@ 张，已处理 %@ 张，共 %@ 张" = "%@ photos pending deletion, %@ of %@ processed";
 "还没有可整理的自建相簿" = "No albums you created to clean up yet";
 "每批最多取 %@ 张（设置里可改）。相簿张数不足时按实际张数开始。" = "Up to %@ photos per batch (changeable in Settings). If the album has fewer, the batch starts with what's there.";
