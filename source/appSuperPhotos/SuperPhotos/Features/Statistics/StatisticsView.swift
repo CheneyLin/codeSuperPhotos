@@ -44,7 +44,7 @@ struct StatisticsView: View {
         .alert("需要 VIP", isPresented: $isVIPHintPresented) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text("免费版提供今日、本周、累计与五款道具分布；本月统计属于 VIP 权益。一期只有模拟开关，不涉及购买。")
+            Text("免费版提供今日、本周、累计与五款道具分布；本月统计属于 VIP 权益。可在「设置 → VIP」中一次性购买或恢复购买。")
         }
         .toast($toastMessage, topPadding: 8)
         .task {

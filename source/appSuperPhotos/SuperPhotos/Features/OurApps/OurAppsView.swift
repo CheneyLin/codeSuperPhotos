@@ -66,37 +66,33 @@ enum OurAppsProvider {
 
 // MARK: - 设置页模块
 
-/// 「我们的应用」模块：横滑图标卡片，点击跳转 App Store。放在「关于」项之前。
-struct OurAppsSection: View {
+/// 「我们的应用」的行内容（不含 Section 外壳），用于和「关于」合并进同一组。
+/// 图标与标题由调用方的模块图标行统一提供，这里只负责可点击的应用列表。
+struct OurAppsRows: View {
     private let apps = OurAppsProvider.apps
 
     var body: some View {
-        if !apps.isEmpty {
-            Section {
-                ForEach(apps) { app in
-                    Button {
-                        OurAppsProvider.openStore(app.appID)
-                    } label: {
-                        HStack(spacing: Theme.Spacing.md) {
-                            Image(app.imageName)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 40, height: 40)
-                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            Text(app.localizedName)
-                                .font(Theme.Typography.body)
-                                .foregroundStyle(Theme.Text.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Theme.Text.secondary.opacity(0.5))
-                        }
-                    }
-                    .buttonStyle(.plain)
+        ForEach(apps) { app in
+            Button {
+                OurAppsProvider.openStore(app.appID)
+            } label: {
+                HStack(spacing: Theme.Spacing.md) {
+                    Image(app.imageName)
+                        .resizable()
+                        .scaledToFill()
+                        // 与设置页 3D 配置图标同宽，应用名与标题行文字左边缘对齐。
+                        .frame(width: 34, height: 34)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Text(app.localizedName)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.Text.secondary.opacity(0.5))
                 }
-            } header: {
-                Text("我们的应用")
             }
+            .buttonStyle(.plain)
         }
     }
 }

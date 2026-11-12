@@ -20,6 +20,7 @@ struct HomeView: View {
     @Environment(StatisticsService.self) private var statistics
     @Environment(SoundService.self) private var sound
     @Environment(AppSettings.self) private var settings
+    @Environment(VaultSyncEngine.self) private var vaultSync
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.appReduceMotion) private var appReduceMotion
     /// 当前设备形态的判定输入：与背景视图共用 `DeviceLayoutConfig.current(...)`，
@@ -131,6 +132,8 @@ struct HomeView: View {
                     onWakeSnoozed: { id in wakeUpSnoozed(id: id) },
                     onWakeAllSnoozed: { wakeAllSnoozed() }
                 )
+                // sheet 显式传递，避免不同 iOS 版本对 environment 继承的差异。
+                .environment(vaultSync)
             }
             .sheet(isPresented: $isAlbumPickerPresented) {
                 TaskAlbumPickerView(
@@ -1680,9 +1683,6 @@ struct HomeView: View {
         }
         if let soundOff = environment["UI_TEST_SOUND_OFF"] {
             settings.soundEnabled = soundOff != "1"
-        }
-        if let vip = environment["UI_TEST_VIP"] {
-            entitlements.setVIP(vip == "1")
         }
         if environment["UI_TEST_TOGGLE_DISPLAY"] == "1" {
             Task {

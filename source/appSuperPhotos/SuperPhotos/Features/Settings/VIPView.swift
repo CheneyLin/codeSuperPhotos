@@ -1,19 +1,22 @@
 import SwiftUI
+import StoreKit
 
-/// VIP 权益页：只做权益对比与模拟开关，不含价格与购买入口。
+/// VIP 权益页：一次性购买（非消耗型）的完整购买 / 恢复入口。
+/// 设置页已提供极简两行快捷操作，本页作为备用完整页保留；
+/// 权益对比与欢迎轮播图素材共用 `SettingsTip.vip.comparison`，避免两处文案走样。
 struct VIPView: View {
     @Environment(EntitlementStore.self) private var entitlements
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @Environment(\.appReduceMotion) private var appReduceMotion
-
-    private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
 
     var body: some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.lg) {
                 statusCard
+                if !entitlements.isVIP {
+                    productCard
+                }
+                actionArea
                 comparisonCard
-                footer
+                legalFooter
             }
             .padding(Theme.Spacing.page)
             .padding(.bottom, Theme.Spacing.xxl)
@@ -21,9 +24,28 @@ struct VIPView: View {
         .background(Theme.Surface.base.ignoresSafeArea())
         .navigationTitle("VIP 权益")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            // App 启动已加载过；此处兜底处理拉取失败后再次进入页面。
+            if entitlements.product == nil {
+                await entitlements.loadProduct()
+            }
+        }
+        .alert(
+            "购买提示",
+            isPresented: Binding(
+                get: { entitlements.notice != nil },
+                set: { presented in
+                    if !presented { entitlements.clearNotice() }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) { entitlements.clearNotice() }
+        } message: {
+            Text(entitlements.notice ?? "")
+        }
     }
 
-    // MARK: - 状态
+    // MARK: - 当前状态
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
@@ -32,7 +54,7 @@ struct VIPView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(entitlements.isVIP ? Theme.Accent.fire : Theme.Text.secondary)
 
-                Text(entitlements.isVIP ? "VIP（模拟）" : "免费版")
+                Text(entitlements.isVIP ? "VIP 会员" : "免费版")
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.Text.primary)
 
@@ -40,107 +62,137 @@ struct VIPView: View {
             }
 
             Text(entitlements.isVIP
-                 ? "模拟 VIP 已开启，下方带 VIP 标记的权益立即生效。"
-                 : "当前为免费版。切换下方模拟开关可即时预览 VIP 权益。")
+                 ? "已购买，VIP 永久有效：实况照片与视频、不限容量、本月统计等权益全部可用。"
+                 : "VIP 为一次性购买，付款一次即可永久解锁实况照片与视频、不限容量与本月统计等权益。")
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Text.secondary)
-
-            Toggle(
-                "模拟 VIP",
-                isOn: Binding(
-                    get: { entitlements.isVIP },
-                    set: { enabled in
-                        withAnimation(Theme.Motion.animation(.fast, reduceMotion: reduceMotion)) {
-                            entitlements.setVIP(enabled)
-                        }
-                    }
-                )
-            )
-            .font(Theme.Typography.body)
         }
         .padding(Theme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .neuSurface(.raised, cornerRadius: Theme.Radius.card)
+    }
+
+    // MARK: - 商品
+
+    private var productCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            Text("购买方案")
+                .font(Theme.Typography.headline)
+                .foregroundStyle(Theme.Text.primary)
+
+            if let product = entitlements.product {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.md) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(product.displayName)
+                            .font(Theme.Typography.body.weight(.semibold))
+                            .foregroundStyle(Theme.Text.primary)
+                        Text(productTypeText)
+                            .font(Theme.Typography.caption)
+                            .foregroundStyle(
+                                entitlements.isProductTypeMismatch
+                                    ? Theme.State.warning
+                                    : Theme.Text.secondary
+                            )
+                    }
+                    Spacer(minLength: Theme.Spacing.sm)
+                    Text(product.displayPrice)
+                        .font(Theme.Typography.headline)
+                        .foregroundStyle(Theme.Text.primary)
+                }
+            } else if entitlements.isLoadingProduct {
+                HStack(spacing: Theme.Spacing.sm) {
+                    ProgressView()
+                    Text("正在获取商品信息…")
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.secondary)
+                }
+            } else {
+                Button {
+                    Task { await entitlements.loadProduct() }
+                } label: {
+                    Label("重新获取商品信息", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.neuText)
+            }
+
+            Text("确认购买后将从你的 Apple ID 账户一次性扣费，购买后永久可用，无自动续订。")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Text.tertiary)
+        }
+        .padding(Theme.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .neuSurface(.raised, cornerRadius: Theme.Radius.card)
+    }
+
+    /// 非消耗型商品 `product.subscription` 为 nil；若不为 nil 说明 ASC 配成了订阅，
+    /// 在页面上明确提示，便于开发期发现配置错误。
+    private var productTypeText: String {
+        entitlements.isProductTypeMismatch
+            ? "商品类型与预期不符（应为一次性购买），请检查 App Store Connect 配置"
+            : "一次性购买 · 永久解锁，无需续订"
+    }
+
+    // MARK: - 购买与恢复
+
+    private var actionArea: some View {
+        VStack(spacing: Theme.Spacing.md) {
+            if !entitlements.isVIP {
+                Button {
+                    Task { await entitlements.purchase() }
+                } label: {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        if entitlements.isPurchasing {
+                            ProgressView()
+                                .tint(Theme.Text.pillButton)
+                        }
+                        Text(entitlements.isPurchasing ? "正在购买…" : "购买 VIP")
+                    }
+                }
+                .buttonStyle(NeuPillButtonStyle())
+                .disabled(
+                    entitlements.isPurchasing
+                        || entitlements.isRestoring
+                        || entitlements.product == nil
+                )
+                .opacity(
+                    entitlements.isPurchasing || entitlements.product == nil ? 0.7 : 1
+                )
+            }
+
+            Button {
+                Task { await entitlements.restore() }
+            } label: {
+                Label(
+                    entitlements.isRestoring ? "正在恢复…" : "恢复购买",
+                    systemImage: "arrow.clockwise"
+                )
+                .font(Theme.Typography.body)
+            }
+            .buttonStyle(NeuTextButtonStyle())
+            .disabled(entitlements.isPurchasing || entitlements.isRestoring)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - 对比
 
     private var comparisonCard: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
-            Text("权益对比")
-                .font(Theme.Typography.headline)
-                .foregroundStyle(Theme.Text.primary)
-
-            ForEach(Feature.allCases) { feature in
-                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Text(feature.title)
-                            .font(Theme.Typography.body.weight(.semibold))
-                            .foregroundStyle(Theme.Text.primary)
-                        Spacer()
-                        Image(systemName: entitlements.isEnabled(feature) ? "checkmark.circle.fill" : "lock.circle")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(entitlements.isEnabled(feature) ? Theme.State.success : Theme.Text.tertiary)
-                    }
-
-                    HStack(alignment: .top, spacing: Theme.Spacing.sm) {
-                        tierLabel("免费", value: freeValue(for: feature), isActive: !entitlements.isVIP)
-                        tierLabel("VIP", value: vipValue(for: feature), isActive: entitlements.isVIP)
-                    }
-                }
-
-                if feature.id != Feature.allCases.last?.id {
-                    Divider()
-                        .overlay(Theme.Shadow.insetBorder.opacity(0.35))
-                }
-            }
-        }
-        .padding(Theme.Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .neuSurface(.raised, cornerRadius: Theme.Radius.card)
+        SettingsTipComparisonView(rows: SettingsTip.vip.comparison)
+            .padding(Theme.Spacing.lg)
+            .neuSurface(.raised, cornerRadius: Theme.Radius.card)
     }
 
-    private func tierLabel(_ title: String, value: String, isActive: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isActive ? Theme.Accent.fire : Theme.Text.tertiary)
-            Text(value)
+    // MARK: - 购买说明
+
+    private var legalFooter: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Text("VIP 为一次性购买：确认后从 Apple ID 账户扣费一次，购买后永久解锁，不会自动续订，也不会再次扣费。更换设备或重装后，可用「恢复购买」免费找回已购权益。价格以 App Store 显示为准；购买与恢复均不影响本机照片与保险箱数据。")
                 .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Text.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(Theme.Text.tertiary)
+
+            SettingsTipLegalLinks()
         }
-        .padding(.horizontal, Theme.Spacing.sm)
-        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .neuSurface(.inset, cornerRadius: Theme.Radius.chip)
-    }
-
-    private func freeValue(for feature: Feature) -> String {
-        switch feature {
-        case .vaultAllMediaTypes: "静态图片"
-        case .vaultUnlimitedCapacity: "60 件 · 2GB"
-        case .statsAdvanced: "今日 · 本周 · 累计 + 五款道具分布"
-        case .extraMachines: "五款道具均可切换"
-        case .dialSkins: "基础外观"
-        }
-    }
-
-    private func vipValue(for feature: Feature) -> String {
-        switch feature {
-        case .vaultAllMediaTypes: "全部媒体类型"
-        case .vaultUnlimitedCapacity: "不限件数与空间"
-        case .statsAdvanced: "增加本月与趋势报告（二期）"
-        case .extraMachines: "更多玩法（二期）"
-        case .dialSkins: "全部皮肤与扩展音效（二期）"
-        }
-    }
-
-    private var footer: some View {
-        Text("一期不接内购：本页没有价格、订阅或购买按钮。二期接入 StoreKit 2 后，真实交易结果会写入同一个 EntitlementStore，门禁调用点无需改动。")
-            .font(Theme.Typography.caption)
-            .foregroundStyle(Theme.Text.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

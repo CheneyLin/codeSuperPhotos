@@ -76,6 +76,11 @@
 				TargetAttributes = {
 					000000000000000100000000 = {
 						CreatedOnToolsVersion = 26.3;
+						SystemCapabilities = {
+							"com.apple.iCloud" = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -252,6 +257,7 @@
 		000000000000000111000000 /* Debug configuration for PBXNativeTarget "appSuperPhotos" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "appSuperPhotos-Debug.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
@@ -296,6 +302,7 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "appSuperPhotos" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "appSuperPhotos-Release.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;

@@ -14,19 +14,19 @@ enum EntitlementTier: String, CaseIterable, Codable, Sendable, Identifiable {
     }
 }
 
-/// 权益来源。一期只有 mock；二期由 StoreKit 2 提供真实来源。
+/// 权益来源。唯一来源为 StoreKit 2 的真实交易（一次性购买 / 恢复购买）。
 enum EntitlementSource: String, Codable, Sendable {
-    case mock
     case storeKit
-    case promotional
 }
 
+/// 非消耗型商品一次购买永久有效，因此快照里没有到期日、周期或续订状态。
 struct EntitlementSnapshot: Equatable, Sendable {
     var tier: EntitlementTier
     var source: EntitlementSource
-    var isMock: Bool
 
-    static func mock(tier: EntitlementTier) -> EntitlementSnapshot {
-        EntitlementSnapshot(tier: tier, source: .mock, isMock: true)
+    static let free = EntitlementSnapshot(tier: .free, source: .storeKit)
+
+    static func storeKit(tier: EntitlementTier) -> EntitlementSnapshot {
+        EntitlementSnapshot(tier: tier, source: .storeKit)
     }
 }

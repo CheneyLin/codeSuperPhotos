@@ -24,9 +24,9 @@ enum VaultEncryptionMode: String, CaseIterable, Identifiable, Sendable {
     var detailText: String {
         switch self {
         case .standard:
-            "文件以普通格式存放在 App 沙盒，受 iOS 沙盒与系统文件保护。App 密码只保护界面访问。"
+            "文件以普通格式存放在 App 沙盒，受 iOS 沙盒与系统文件保护。App 密码只保护界面访问；开启 iCloud 同步后，此档内容会同步到你的 iCloud 私有数据库。"
         case .strong:
-            "文件使用 AES-GCM 与仅存本机的 Keychain 内容密钥加密。App 密码仍只负责界面解锁。"
+            "文件使用 AES-GCM 与仅存本机的 Keychain 内容密钥加密。App 密码仍只负责界面解锁；密钥不出本机，此档内容不参与 iCloud 同步。"
         }
     }
 
@@ -68,6 +68,15 @@ enum VaultCrypto {
     private static let magic = Data([0x53, 0x50, 0x56, 0x31]) // "SPV1"
     private static let version: UInt8 = 1
     private static let chunkSize = 4 * 1024 * 1024
+
+    /// 按文件头识别强加密文件。同步层据此跳过密文，读取层据此决定是否解密，
+    /// 不再依赖「当前选择的档位」这个全局状态。
+    static func isEncryptedFile(at url: URL) -> Bool {
+        guard let input = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? input.close() }
+        guard let header = try? input.read(upToCount: magic.count) else { return false }
+        return header == magic
+    }
 
     /// 取出或生成内容密钥。只有强加密档会创建。
     static func contentKey(createIfNeeded: Bool = true) throws -> SymmetricKey {

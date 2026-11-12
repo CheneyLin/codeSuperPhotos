@@ -48,6 +48,7 @@
 ### 【已定】Q4 保险箱文件是否排除 iCloud 备份
 
 - 决策：**C** —— 一期 `isExcludedFromBackup = true`；二期提供"加密备份到 iCloud Drive"（用户主动触发，备份文件独立加密）。
+- 后续更正（决策日志 #177）：二期未走 iCloud Drive 文件备份，改为 **CloudKit 私有数据库同步**（`iCloud.com.gpwzw.appSuperPhotos`，VIP 专属、默认关闭）。沙盒文件仍保持 `isExcludedFromBackup = true`，由 App 主动读取并作为 `CKAsset` 上传；强加密档因密钥不出本机被排除在同步之外，因此不需要为其再设计一套"独立加密备份格式"。
 
 ### 【已定】Q5 是否对保险箱文件做内容加密
 

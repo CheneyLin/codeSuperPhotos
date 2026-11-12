@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 /// 设置页内部路由；首页的 DEBUG 钩子也通过它直达统计与 VIP。
 enum SettingsRoute: Hashable {
@@ -8,11 +9,27 @@ enum SettingsRoute: Hashable {
     case designSystem
 }
 
+/// 设置页的统一行度量：标题行是「图标 + 文字」，非标题行只缩进到文字左边缘。
+private enum SettingsLayout {
+    static let iconSize: CGFloat = 34
+    static let rowIndent: CGFloat = iconSize + Theme.Spacing.md
+}
+
+private extension View {
+    /// 所有非标题行统一缩进到标题行文字的左边缘（34 + md = 46pt）。
+    /// 控件本身可直接调用；Button / NavigationLink 应加在 label 内容上，
+    /// 否则整行左侧会变成不可点击区域。
+    func settingsRowIndent() -> some View {
+        padding(.leading, SettingsLayout.rowIndent)
+    }
+}
+
 struct SettingsView: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(VaultStore.self) private var vault
     @Environment(AppSettings.self) private var settings
     @Environment(StatisticsService.self) private var statistics
+    @Environment(VaultSyncEngine.self) private var vaultSync
     @Environment(\.dismiss) private var dismiss
 
     private let initialRoute: SettingsRoute?
@@ -31,9 +48,14 @@ struct SettingsView: View {
     @State private var isVaultSetupPresented = false
     @State private var isVaultResetPresented = false
     @State private var isSnoozeListPresented = false
+    #if DEBUG
+    @State private var entitlementDiagnosis = ""
+    @State private var isEntitlementDiagnosisPresented = false
+    #endif
     @AppStorage(VaultAutoLock.defaultsKey) private var autoLockSeconds = VaultAutoLock.immediate.rawValue
     @AppStorage(VaultEncryptionMode.defaultsKey) private var encryptionModeRaw = VaultEncryptionMode.standard.rawValue
     @AppStorage(TaskPolicy.batchSizeKey) private var batchSize = TaskPolicy.batchSize
+    @AppStorage(VaultSyncPreference.enabledKey) private var syncEnabled = false
 
     private let gigabyte: Int64 = 1024 * 1024 * 1024
 
@@ -56,15 +78,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Form {
-                appearanceSection
-                deviceSection
-                statisticsSection
-                taskSection
-                snoozeSection
-                vaultSection
                 vipSection
-                ourAppsSection
-                aboutSection
+                // 外观 / 销毁道具 / 统计 / 整理 / 延后 合并为一组主模块。
+                mainSection
+                vaultSection
+                moreSection
                 #if DEBUG
                 debugSection
                 #endif
@@ -111,7 +129,99 @@ struct SettingsView: View {
                 VaultResetView()
             }
         }
+        // 购买 / 恢复的结果直接在本页反馈（设置页已不再跳转 VIP 页）。
+        .alert(
+            "VIP",
+            isPresented: Binding(
+                get: { entitlements.notice != nil },
+                set: { presented in
+                    if !presented { entitlements.clearNotice() }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) { entitlements.clearNotice() }
+        } message: {
+            Text(entitlements.notice ?? "")
+        }
+        .task {
+            // 启动时若商品拉取失败，进入设置页再兜底一次，保证第一行能显示价格。
+            if entitlements.product == nil {
+                await entitlements.loadProduct()
+            }
+        }
         .dynamicTypeSize(.xSmall ... .accessibility5)
+    }
+
+    // MARK: - 模块图标行
+
+    /// 取代原来的 Section 灰色标题：3D 图标放进模块内部，作为该模块的一行。
+    /// 需要标题/说明/当前值时才在同一行补文字；自带文字的单行模块
+    /// （VIP / 关于）则把图标直接内嵌进功能行，不额外占一行。
+    private func moduleRow(
+        icon: String,
+        title: String,
+        subtitle: String? = nil,
+        value: String? = nil
+    ) -> some View {
+        HStack(spacing: Theme.Spacing.md) {
+            configIcon(icon)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.Text.primary)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.tertiary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+
+            Spacer(minLength: Theme.Spacing.sm)
+
+            if let value {
+                Text(value)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Text.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// `Assets.xcassets/Config` 里的 3D 配置图标，统一 34pt、等比不裁切。
+    private func configIcon(_ name: String) -> some View {
+        Image(name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: SettingsLayout.iconSize, height: SettingsLayout.iconSize)
+            .accessibilityHidden(true)
+    }
+
+    /// VIP 两行需要等高：恢复购买行用等宽透明占位顶住 34pt 图标的高度，
+    /// 左边缘与 `settingsRowIndent()` 完全一致（占位 + md 间距）。
+    private var iconSpacer: some View {
+        Color.clear.frame(width: SettingsLayout.iconSize, height: SettingsLayout.iconSize)
+    }
+
+    /// 先落盘再通知引擎，保证引擎读到的是新开关值。
+    private var syncEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { syncEnabled },
+            set: { newValue in
+                syncEnabled = newValue
+                UserDefaults.standard.set(newValue, forKey: VaultSyncPreference.enabledKey)
+                vaultSync.syncEnabledDidChange()
+            }
+        )
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        return "v\(version)"
     }
 
     /// sheet 内容可能早于外部状态更新被构建，这里同时读绑定值，保证能补齐跳转。
@@ -139,27 +249,43 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - 主模块组
+
+    /// 外观 / 销毁道具 / 统计 / 整理 / 延后 合并进同一个 Section。
+    /// 模块标识行用 3D 图标，其余控件行统一走 `settingsRowIndent()`；
+    /// 「统计」「整理批次」「延后」各自压成一行，副标题显示当前摘要 / 设置 / 数量。
+    private var mainSection: some View {
+        Section {
+            appearanceRows
+            deviceRows
+            statisticsRows
+            taskRows
+            snoozeRows
+        }
+    }
+
     // MARK: - 外观
 
-    private var appearanceSection: some View {
-        Section {
-            Picker("显示模式", selection: displayModeBinding) {
-                ForEach(DisplayMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
+    @ViewBuilder
+    private var appearanceRows: some View {
+        moduleRow(icon: "icon_config_ui", title: "外观和交互")
+
+        Picker("显示模式", selection: displayModeBinding) {
+            ForEach(DisplayMode.allCases) { mode in
+                Text(mode.title).tag(mode)
             }
-            .pickerStyle(.segmented)
-
-            Toggle("高对比度", isOn: highContrastBinding)
-
-            Toggle("降低动效", isOn: reduceMotionBinding)
-
-            Toggle("音效", isOn: soundBinding)
-        } header: {
-            Text("外观与交互")
-        } footer: {
-            Text("显示模式即时生效并保留到下次启动；高对比度会加深文字、加粗描边；降低动效与系统设置取并集。")
         }
+        .pickerStyle(.segmented)
+        .settingsRowIndent()
+
+        Toggle("高对比度", isOn: highContrastBinding)
+            .settingsRowIndent()
+
+        Toggle("降低动效", isOn: reduceMotionBinding)
+            .settingsRowIndent()
+
+        Toggle("音效", isOn: soundBinding)
+            .settingsRowIndent()
     }
 
     private var displayModeBinding: Binding<DisplayMode> {
@@ -181,116 +307,156 @@ struct SettingsView: View {
     // MARK: - 销毁道具
 
     /// 底部道具的直选入口，与首页「轻点循环切换」共用 AppSettings.destroyMachine。
-    private var deviceSection: some View {
-        Section {
-            DevicePickerStrip(selection: settings.destroyMachine) { machine in
-                settings.destroyMachine = machine
-            }
-        } header: {
-            Text("销毁道具")
-        } footer: {
-            Text("桌面底部可轻点道具按顺序循环切换：废纸篓 → 碎纸机 → 壁炉 → 邮筒 → 任意门。每款道具都有独立的落入动效与音效，选择会保留到下次启动；统计按当时选中的道具分别计数。")
+    @ViewBuilder
+    private var deviceRows: some View {
+        moduleRow(icon: "icon_config_destory", title: "销毁道具")
+
+        DevicePickerStrip(selection: settings.destroyMachine) { machine in
+            settings.destroyMachine = machine
         }
+        .settingsRowIndent()
     }
 
-    // MARK: - 统计
+    // MARK: - 整理
 
-    private var taskSection: some View {
-        Section {
+    /// 整理批次：压成一行，副标题就是当前设置，右侧只留紧凑的 +/- 步进器。
+    private var taskRows: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            configIcon("icon_config_batch")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("整理批次")
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.Text.primary)
+                Text("每批 \(batchSize) 张")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Theme.Text.tertiary)
+            }
+
+            Spacer(minLength: Theme.Spacing.sm)
+
             Stepper(
-                "每批 \(batchSize) 张",
+                "每批张数",
                 value: $batchSize,
                 in: TaskPolicy.batchSizeRange,
                 step: TaskPolicy.batchSizeStep
             )
+            .labelsHidden()
+            .fixedSize()
             .accessibilityLabel("每批张数")
             .accessibilityValue("每批 \(batchSize) 张")
             .accessibilityHint("范围 10 到 200 张，每次增加或减少 10 张")
-        } header: {
-            Text("整理")
-        } footer: {
-            Text("只影响之后新建的批次；正在进行的任务按开始时的张数计算进度，中途修改不会改变分母。相簿不足时按实际张数开始。")
         }
+        .padding(.vertical, 2)
     }
 
     private var todaySummary: StatSummary {
         statistics.summary(for: .today)
     }
 
-    /// 今日各道具件数的紧凑摘要；零计数不展示，避免出现一长串 0。
-    private var todayDeviceLine: String {
-        let parts = MachineKind.allCases
-            .filter { todaySummary.count(for: $0) > 0 }
-            .map { "\($0.displayName) \(todaySummary.count(for: $0))" }
-        return parts.isEmpty ? "今日暂无销毁记录" : parts.joined(separator: " · ")
-    }
+    /// 统计：与「延后」同构，压成一行——图标 + 标题 + 副标题（今日件数）+ chevron。
+    /// 分布条与各道具明细本来就在二级 `StatisticsView` 里，设置页只留摘要，不再重复占一行。
+    private var statisticsRows: some View {
+        Button {
+            path.append(.statistics)
+        } label: {
+            HStack(spacing: Theme.Spacing.md) {
+                configIcon("icon_config_data")
 
-    private var statisticsSection: some View {
-        Section {
-            NavigationLink(value: SettingsRoute.statistics) {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack {
-                        Text("整理统计")
-                        Spacer()
-                        Text("今日 \(todaySummary.destroyed) 件")
-                            .foregroundStyle(.secondary)
-                    }
-                    DeviceDistributionBar(summary: todaySummary, height: 7)
-                    Text(todayDeviceLine)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("统计")
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+                    Text(statisticsSubtitle)
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.tertiary)
-                        .lineLimit(2)
+                        .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
-                .padding(.vertical, 2)
+
+                Spacer(minLength: Theme.Spacing.sm)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Text.secondary.opacity(0.5))
             }
-        } header: {
-            Text("统计")
-        } footer: {
-            Text("免费版提供今日、本周、累计，以及五款道具各自的件数与占比；本月周期属于 VIP 权益。")
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("统计")
+        .accessibilityValue(statisticsSubtitle)
+        .accessibilityHint("查看完整的整理统计")
+    }
+
+    private var statisticsSubtitle: String {
+        todaySummary.destroyed > 0
+            ? "今日 \(todaySummary.destroyed) 件"
+            : "今日暂无销毁记录"
     }
 
     // MARK: - 延后
 
-    /// 延后入口。数量为 0 也保留这一行：用户可以进列表确认“确实没有延后”，
-    /// 列表本身的空态由 SnoozeListView 提供。
-    private var snoozeSection: some View {
-        Section {
-            Button {
-                isSnoozeListPresented = true
-            } label: {
-                HStack {
-                    Text("延后处理 \(snooze.count) 项")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+    /// 延后：压成一行，副标题显示当前数量；整行点击进入延后列表。
+    /// 数量为 0 也保留这一行，列表本身的空态由 SnoozeListView 提供。
+    private var snoozeRows: some View {
+        Button {
+            isSnoozeListPresented = true
+        } label: {
+            HStack(spacing: Theme.Spacing.md) {
+                configIcon("icon_config_later")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("延后")
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+                    Text("\(snooze.count) 项待处理")
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.tertiary)
                 }
-                .contentShape(Rectangle())
+
+                Spacer(minLength: Theme.Spacing.sm)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Text.secondary.opacity(0.5))
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("查看延后中的照片，可单张恢复或全部恢复")
-        } header: {
-            Text("延后")
-        } footer: {
-            Text("延后中的照片到期前不会进入舞台；可在这里逐张恢复或全部恢复。")
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("延后")
+        .accessibilityValue("\(snooze.count) 项")
+        .accessibilityHint("查看延后中的照片，可单张恢复或全部恢复")
     }
 
     // MARK: - 私密保险箱
 
     private var vaultSection: some View {
         Section {
+            moduleRow(icon: "icon_config_vault", title: "私密保险箱")
+
+            // iCloud 同步是模块级开关，放在模块首行：设置页很长，压在底部容易被忽略。
+            syncToggleRow
+
+            if syncEnabled {
+                syncStatusRow
+                syncDetailRow
+            }
+
             if isConfigured {
                 NavigationLink {
                     VaultPasswordChangeView()
                 } label: {
                     Text("修改密码")
+                        .settingsRowIndent()
                 }
             } else {
-                Button("设置保险箱密码") {
+                Button {
                     isVaultSetupPresented = true
+                } label: {
+                    Text("设置保险箱密码")
+                        .settingsRowIndent()
                 }
             }
 
@@ -299,90 +465,279 @@ struct SettingsView: View {
                     Text(option.title).tag(option.rawValue)
                 }
             }
+            .settingsRowIndent()
 
             Picker("内容保护", selection: $encryptionModeRaw) {
                 ForEach(VaultEncryptionMode.allCases) { mode in
                     Text(mode.title).tag(mode.rawValue)
                 }
             }
+            .settingsRowIndent()
 
             Button(role: .destructive) {
                 isVaultResetPresented = true
             } label: {
                 Text("重置保险箱")
+                    .settingsRowIndent()
             }
             .disabled(!isConfigured)
-        } header: {
-            Text("私密保险箱")
-        } footer: {
-            Text("密码盘组合空间 30 × 60 = 1800 种（约 10.8 bit），能挡住随手翻看，挡不住有时间暴力尝试的人；已配合阶梯锁定。密码忘记后无法找回。\n\n内容保护：标准（默认）把文件以普通格式存放在 App 沙盒，只受 iOS 沙盒与系统文件保护，App 密码只保护界面访问，不做应用层加密；强加密才使用 AES-GCM 与仅存本机的 Keychain 内容密钥。两档文件都不进入 iCloud / iTunes 备份。切换只影响之后存入的内容，切换前已存入的条目不保证可读（开发期不做迁移）。")
+        }
+    }
+
+    /// iCloud 同步开关：常驻模块首行，副标题始终说明同步范围。
+    /// 非 VIP 时同一行给「开通 VIP」文字入口，避免只留一个不可点的灰开关
+    /// 让人以为功能没做或开关没加上。
+    private var syncToggleRow: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            Toggle(isOn: syncEnabledBinding) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("iCloud 同步")
+                    Text(syncSubtitle)
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .disabled(!entitlements.isVIP)
+
+            if !entitlements.isVIP {
+                Button("开通 VIP") { triggerPurchase() }
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Color.accentColor)
+                    .buttonStyle(.plain)
+                    .disabled(entitlements.isPurchasing || entitlements.isRestoring)
+                    .accessibilityHint("购买 VIP 后即可开启 iCloud 同步")
+            }
+        }
+        .settingsRowIndent()
+    }
+
+    private var syncStatusRow: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            Text(vaultSync.statusText)
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Text.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: Theme.Spacing.sm)
+            if vaultSync.isSyncing {
+                ProgressView()
+            } else {
+                Button("立即同步") { vaultSync.syncNow() }
+                    .font(Theme.Typography.caption)
+                    .disabled(!vaultSync.canSyncNow)
+            }
+        }
+        .settingsRowIndent()
+    }
+
+    private var syncDetailRow: some View {
+        Text(vaultSync.detailText)
+            .font(Theme.Typography.caption)
+            .foregroundStyle(Theme.Text.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .settingsRowIndent()
+    }
+
+    private var syncSubtitle: String {
+        if !entitlements.isVIP { return "VIP 专属 · 升级后可开启" }
+        return syncEnabled
+            ? "标准档内容跨设备可用"
+            : "开启后，标准档内容同步到你的 iCloud 私有数据库"
+    }
+
+    /// VIP 第一行与保险箱「开通 VIP」入口共用：商品未就绪时只重试拉取，
+    /// 避免「看不到价格就发起扣费」。
+    private func triggerPurchase() {
+        guard !entitlements.isVIP else { return }
+        if entitlements.product == nil {
+            Task { await entitlements.loadProduct() }
+        } else {
+            Task { await entitlements.purchase() }
         }
     }
 
     // MARK: - VIP
 
+    /// 极简两行：第一行「标题 + 副标题（VIP 为成为 VIP 的天数，未购买为商品本地化描述）
+    /// / 含价格的购买按钮」，第二行「恢复购买」。两行都是整行 Button（.plain + contentShape），
+    /// 点击区域覆盖整行；购买与恢复的结果通过外层 alert 反馈，不再跳转 VIP 页。
     private var vipSection: some View {
         Section {
-            HStack {
-                Text("当前权益")
-                Spacer()
-                Text(entitlements.isVIP ? "VIP（模拟）" : "免费版")
-                    .foregroundStyle(entitlements.isVIP ? Color.orange : Color.secondary)
-            }
+            Button {
+                triggerPurchase()
+            } label: {
+                HStack(spacing: Theme.Spacing.md) {
+                    configIcon("icon_config_vip")
 
-            NavigationLink(value: SettingsRoute.vip) {
-                Text("查看权益对比")
-            }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entitlements.isVIP ? "欢迎尊贵的VIP大人" : "VIP")
+                            .font(Theme.Typography.body)
+                            .foregroundStyle(Theme.Text.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
 
-            Toggle(
-                "模拟 VIP",
-                isOn: Binding(
-                    get: { entitlements.isVIP },
-                    set: { entitlements.setVIP($0) }
-                )
-            )
-        } header: {
-            Text("VIP")
-        } footer: {
-            Text("一期只有模拟开关，无内购、无价格。二期接入 StoreKit 2 后，真实交易结果会写入同一个 EntitlementStore。")
+                        // StoreKit 按设备语言返回 App Store Connect 配置的商品描述。
+                        Text(vipDescription)
+                            .font(Theme.Typography.caption)
+                            .foregroundStyle(Theme.Text.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: Theme.Spacing.sm)
+
+                    if entitlements.isVIP {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Theme.Accent.fire)
+                    } else if entitlements.isLoadingProduct || entitlements.isPurchasing {
+                        ProgressView()
+                    } else {
+                        Text(purchaseLabel)
+                            .font(Theme.Typography.body.weight(.semibold))
+                            .foregroundStyle(Theme.Text.pillButton)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, Theme.Spacing.md)
+                            .padding(.vertical, 6)
+                            .background(Theme.Surface.pillButton, in: Capsule())
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(entitlements.isPurchasing || entitlements.isRestoring)
+            .accessibilityLabel(vipAccessibilityLabel)
+
+            Button {
+                Task { await entitlements.restore() }
+            } label: {
+                HStack(spacing: Theme.Spacing.md) {
+                    iconSpacer
+
+                    Text(entitlements.isRestoring ? "正在恢复…" : "恢复购买")
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+
+                    Spacer(minLength: Theme.Spacing.sm)
+
+                    if entitlements.isRestoring {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(Theme.Text.tertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(entitlements.isPurchasing || entitlements.isRestoring)
+            .accessibilityLabel("恢复购买")
+            .accessibilityHint("找回此前已购买的 VIP，不会重复扣费")
         }
     }
 
-    // MARK: - 我们的应用
-
-    private var ourAppsSection: some View {
-        OurAppsSection()
+    /// VIP 有效时副标题固定为「成为 VIP 的天数」，天数由 EntitlementStore
+    /// 按最早的已验证购买交易计算（含中断与重复购买，不重新计时）；
+    /// 未购买时才展示 App Store Connect 配置的分语言商品描述。
+    private var vipDescription: String {
+        if entitlements.isVIP {
+            guard let days = entitlements.vipDays else {
+                // 收据日期暂时取不到时的兜底，避免出现空白第二行。
+                return "已永久解锁全部权益"
+            }
+            return "从成为VIP那天到现在已经\(days)天啦！"
+        }
+        if let description = entitlements.product?.description,
+           !description.isEmpty {
+            return description
+        }
+        return "一次性购买 · 永久解锁，无需续订"
     }
 
-    // MARK: - 关于
+    /// 价格整合进购买按钮；商品未就绪时按钮只用于重新拉取，不发起扣费。
+    private var purchaseLabel: String {
+        guard let product = entitlements.product else { return "重新获取" }
+        return "购买 \(product.displayPrice)"
+    }
 
-    private var aboutSection: some View {
-        Section {
-            NavigationLink(value: SettingsRoute.about) {
-                Text("关于与隐私")
+    private var vipAccessibilityLabel: String {
+        if entitlements.isVIP {
+            if let days = entitlements.vipDays {
+                return "欢迎尊贵的VIP大人，已解锁 \(days) 天"
             }
-        } header: {
-            Text("关于")
+            return "欢迎尊贵的VIP大人，权益已解锁"
+        }
+        guard let price = entitlements.product?.displayPrice else { return "购买 VIP" }
+        return "购买 VIP，\(price)"
+    }
+
+    // MARK: - 我们的应用 / 关于
+
+    /// 合并为一组：应用列表用图标行标识，关于把图标与版本号直接放在入口行里。
+    private var moreSection: some View {
+        Section {
+            moduleRow(icon: "icon_config_apps", title: "我们的应用")
+
+            OurAppsRows()
+
+            NavigationLink(value: SettingsRoute.about) {
+                HStack(spacing: Theme.Spacing.md) {
+                    configIcon("icon_config_about")
+
+                    Text("关于")
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+
+                    Spacer(minLength: Theme.Spacing.sm)
+
+                    Text(appVersion)
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Theme.Text.tertiary)
+                }
+                .padding(.vertical, 2)
+            }
         }
     }
 
     #if DEBUG
     private var debugSection: some View {
         Section {
+            Text("开发工具")
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Theme.Text.tertiary)
+
             NavigationLink(value: SettingsRoute.designSystem) {
                 Text("设计系统预览")
+                    .settingsRowIndent()
             }
 
             Toggle("模拟销毁（不真删）", isOn: Binding(
                 get: { DebugOptions.readSimulatingDestroy() },
                 set: { DebugOptions.setSimulatingDestroy($0) }
             ))
+            .settingsRowIndent()
+
+            Button {
+                Task {
+                    entitlementDiagnosis = await entitlements.diagnostics()
+                    isEntitlementDiagnosisPresented = true
+                }
+            } label: {
+                Text("权益诊断（StoreKit 交易）")
+                    .settingsRowIndent()
+            }
 
             gateProbeRows
-        } header: {
-            Text("开发工具")
-        } footer: {
-            Text("仅 Debug 构建可见。模拟销毁会完整走吸附、蓄力、动画与提示，但不调用系统删除。")
+        }
+        .alert("权益诊断", isPresented: $isEntitlementDiagnosisPresented) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(entitlementDiagnosis)
         }
     }
 
@@ -405,6 +760,7 @@ struct SettingsView: View {
                     )
                 }
                 .foregroundStyle(.primary)
+                .settingsRowIndent()
             }
         }
 
@@ -420,6 +776,7 @@ struct SettingsView: View {
             Spacer()
             statusIcon(result)
         }
+        .settingsRowIndent()
     }
 
     @ViewBuilder
@@ -466,4 +823,5 @@ struct SettingsView: View {
     .environment(VaultStore())
     .environment(AppSettings())
     .environment(StatisticsService())
+    .environment(VaultSyncEngine())
 }

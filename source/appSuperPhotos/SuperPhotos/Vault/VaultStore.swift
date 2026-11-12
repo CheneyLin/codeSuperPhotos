@@ -67,6 +67,9 @@ final class VaultStore {
         return cache
     }()
     @ObservationIgnored private var autoLockTask: Task<Void, Never>?
+    /// iCloud 同步引擎挂在这里：写入后择机同步、删除时记录墓碑。
+    /// 用轻量钩子而不是直接引用引擎，存储层不反向依赖同步层类型。
+    @ObservationIgnored var syncHooks = VaultSyncHooks()
 
     init(container: ModelContainer? = nil) {
         let resolvedContainer = container ?? AppModelContainer.shared
@@ -88,6 +91,7 @@ final class VaultStore {
         records = (try? context.fetch(descriptor)) ?? []
         totalBytes = records.reduce(0) { $0 + $1.byteSize }
         revision += 1
+        syncHooks.onRecordsChanged?()
     }
 
     var usedItems: Int { records.count }
@@ -128,7 +132,9 @@ final class VaultStore {
         }
         let pairedURL = record.pairedVideoPath.map { Paths.vaultFileURL(relativePath: $0) }
 
-        guard encryptionMode == .strong else {
+        // 按文件头判断，而不是按「当前档位」：切换过内容保护档位、或从另一台
+        // 设备同步下来的标准档明文文件，都能被正确读取，不会被误当成密文解密。
+        guard VaultCrypto.isEncryptedFile(at: primaryURL) else {
             return VaultPreparedMedia(
                 imageURL: primaryURL,
                 videoURL: pairedURL,
@@ -438,8 +444,10 @@ final class VaultStore {
         guard !isBusy else { return summary }
 
         isBusy = true
+        var deletedIDs: [UUID] = []
         defer {
             isBusy = false
+            if !deletedIDs.isEmpty { syncHooks.onRecordsDeleted?(deletedIDs) }
             reload()
         }
 
@@ -453,6 +461,7 @@ final class VaultStore {
                 context.delete(record)
                 try? context.save()
                 thumbnailCache.removeObject(forKey: record.id.uuidString as NSString)
+                deletedIDs.append(record.id)
                 summary.restored += 1
             } catch {
                 record.state = .broken
@@ -481,24 +490,30 @@ final class VaultStore {
     }
 
     func permanentDelete(ids: [UUID]) {
+        var deletedIDs: [UUID] = []
         for record in records where ids.contains(record.id) {
             removeFiles(for: record)
             thumbnailCache.removeObject(forKey: record.id.uuidString as NSString)
             context.delete(record)
+            deletedIDs.append(record.id)
         }
         try? context.save()
+        if !deletedIDs.isEmpty { syncHooks.onRecordsDeleted?(deletedIDs) }
         reload()
     }
 
     func resetAll() {
         let descriptor = FetchDescriptor<VaultRecord>()
+        var deletedIDs: [UUID] = []
         if let all = try? context.fetch(descriptor) {
             for record in all {
                 removeFiles(for: record)
                 context.delete(record)
+                deletedIDs.append(record.id)
             }
         }
         try? context.save()
+        if !deletedIDs.isEmpty { syncHooks.onRecordsDeleted?(deletedIDs) }
 
         try? FileManager.default.removeItem(at: Paths.vaultDirectory)
         Paths.ensureVaultDirectory()
@@ -508,6 +523,114 @@ final class VaultStore {
         thumbnailCache.removeAllObjects()
         isUnlocked = false
         reload()
+    }
+
+    // MARK: - iCloud 同步接口
+
+    /// 本机清单里是否已有该条目（云端记录以 UUID 为唯一键）。
+    func containsRecord(id: UUID) -> Bool {
+        records.contains { $0.id == id }
+    }
+
+    /// 可上传的条目：文件存在、且是标准档明文。
+    /// 强加密文件的内容密钥只在本机 Keychain，其它设备拿到也无法解密，直接跳过。
+    func syncableItems() -> [VaultSyncItem] {
+        records.compactMap { record in
+            let url = Paths.vaultFileURL(relativePath: record.relativePath)
+            guard FileManager.default.fileExists(atPath: url.path),
+                  !VaultCrypto.isEncryptedFile(at: url) else { return nil }
+            return VaultSyncItem(
+                id: record.id,
+                fileName: record.fileName,
+                mediaKindRaw: record.mediaKindRaw,
+                byteSize: record.byteSize,
+                capturedAt: record.capturedAt,
+                addedAt: record.addedAt,
+                albumNames: record.albumNames,
+                hasPairedVideo: record.pairedVideoPath != nil,
+                mediaURL: url,
+                pairedVideoURL: record.pairedVideoPath.map {
+                    Paths.vaultFileURL(relativePath: $0)
+                }
+            )
+        }
+    }
+
+    /// 云端新增条目落地：把 CKAsset 复制到本机 Vault 目录（沿用相对路径规则），
+    /// 再插入清单。远端条目没有本机系统资产 id，`originLocalID` 留空。
+    func applyRemoteUpsert(
+        _ item: VaultRemoteItem,
+        mediaURL: URL,
+        pairedVideoURL: URL?
+    ) async throws {
+        guard !containsRecord(id: item.id) else { return }
+        guard FileManager.default.fileExists(atPath: mediaURL.path) else {
+            throw VaultCryptoError.fileMissing
+        }
+
+        let relativePath = Paths.makeRelativePath(fileName: item.fileName)
+        let videoRelativePath: String? = (item.hasPairedVideo && pairedVideoURL != nil)
+            ? Paths.makeRelativePath(fileName: Self.videoFileName(from: item.fileName))
+            : nil
+        let primaryURL = Paths.vaultFileURL(relativePath: relativePath)
+        let videoDestURL = videoRelativePath.map { Paths.vaultFileURL(relativePath: $0) }
+        _ = Paths.ensureVaultDirectory()
+
+        do {
+            // CloudKit 的 CKAsset.fileURL 只在本次 record 生命周期内有效，必须先复制走。
+            try await Task.detached(priority: .utility) {
+                try FileManager.default.copyItem(at: mediaURL, to: primaryURL)
+                if let pairedVideoURL, let videoDestURL {
+                    try FileManager.default.copyItem(at: pairedVideoURL, to: videoDestURL)
+                }
+            }.value
+        } catch {
+            try? FileManager.default.removeItem(at: primaryURL)
+            if let videoDestURL { try? FileManager.default.removeItem(at: videoDestURL) }
+            throw error
+        }
+
+        Paths.applyVaultFileAttributes(to: primaryURL)
+        if let videoDestURL { Paths.applyVaultFileAttributes(to: videoDestURL) }
+
+        let record = VaultRecord(
+            id: item.id,
+            originLocalID: nil,
+            fileName: item.fileName,
+            mediaKind: MediaKind(rawValue: item.mediaKindRaw) ?? .photo,
+            byteSize: item.byteSize,
+            capturedAt: item.capturedAt,
+            addedAt: item.addedAt,
+            albumNames: item.albumNames,
+            relativePath: relativePath,
+            pairedVideoPath: videoRelativePath
+        )
+        context.insert(record)
+        try? context.save()
+        // 批量同步时逐条全表 fetch 会是 O(n²)：这里只增量更新内存清单，
+        // 由引擎在整轮 pull 结束后统一 reload() 一次。
+        records.insert(record, at: 0)
+        totalBytes += record.byteSize
+        revision += 1
+    }
+
+    /// 云端删除墓碑落地：删本机副本与清单，不再回写墓碑（避免自我放大）。
+    func applyRemoteDeletion(ids: [UUID]) {
+        let targets = records.filter { ids.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        for record in targets {
+            removeFiles(for: record)
+            thumbnailCache.removeObject(forKey: record.id.uuidString as NSString)
+            context.delete(record)
+        }
+        try? context.save()
+        records.removeAll { ids.contains($0.id) }
+        totalBytes = records.reduce(0) { $0 + $1.byteSize }
+        revision += 1
+    }
+
+    private static func videoFileName(from fileName: String) -> String {
+        (fileName as NSString).deletingPathExtension + ".mov"
     }
 
     // MARK: - 内部
@@ -527,6 +650,8 @@ final class VaultStore {
 
         records.removeAll { ids.contains($0.id) }
         totalBytes = records.reduce(0) { $0 + $1.byteSize }
+        syncHooks.onRecordsDeleted?(Array(ids))
+        syncHooks.onRecordsChanged?()
         return copiedRecords.count
     }
 
