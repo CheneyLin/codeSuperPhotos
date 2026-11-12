@@ -1,48 +1,36 @@
 import SwiftUI
 
-/// 首次引导：五区说明 / 销毁玩法 / 保险箱，可跳过。
+/// 首次引导：三页插图 + 极简文案，可跳过。
+///
+/// 布局：上方插图、下方文案与按钮，整体居中于屏幕中央的一个正方形卡片内，
+/// 卡片边长随设备尺寸自适应（取可用宽高较小者并封顶）。
+/// 进入每一页时按「图片 → 文案 → 按钮」的顺序依次浮现。
+/// 配色全部走 `Theme` 自适应 token，跟随系统明暗模式。
 struct OnboardingView: View {
     let onFinish: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.appReduceMotion) private var appReduceMotion
     @State private var page = 0
+    @State private var isAuthorizing = false
 
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
 
     private let pages: [OnboardingPage] = [
         OnboardingPage(
-            symbol: "rectangle.stack",
-            title: "从桌面开始一批".localized,
-            subtitle: "桌面不展示照片，选一个相簿，一次最多整理 %@ 张。".localized(TaskPolicy.configuredBatchSize),
-            items: [
-                .init("photo.stack", "选择相簿".localized, "「全部照片」或任意自建相簿，按顺序逐张处理。".localized),
-                .init("photo", "中央舞台".localized, "四张堆叠，轻点全屏，双指缩放。".localized),
-                .init("sidebar.left", "左右抽屉".localized, "左侧保险箱预览，右侧相簿列表。".localized),
-                .init("flame", "底部机器".localized, "壁炉与碎纸机，选择删除方式。".localized)
-            ]
+            imageName: "welcome-1",
+            text: "像在桌面整理照片般批量操作".localized,
+            buttonTitle: "继续".localized
         ),
         OnboardingPage(
-            symbol: "flame",
-            title: "先入队，任务结束统一处理".localized,
-            subtitle: "下滑只加入本批待销毁，不会立刻删除系统照片。".localized,
-            items: [
-                .init("hand.draw", "下滑照片".localized, "超过 %@pt 才计入，不足会弹回原位。".localized(Int(StageStackPolicy.discardCommitDistance))),
-                .init("flame", "飞入处理口".localized, "照片飞进底部炉口或刀口，粒子里消失。".localized),
-                .init("checkmark.circle", "统一结算".localized, "一批处理完才加密保险箱、删除废纸篓。".localized),
-                .init("arrow.uturn.backward", "系统确认".localized, "不可逆操作由系统确认框把关；取消不会留下重复副本。".localized)
-            ]
+            imageName: "welcome-2",
+            text: "收藏，删除，加密，极简操作快速上手".localized,
+            buttonTitle: "继续".localized
         ),
         OnboardingPage(
-            symbol: "lock.shield",
-            title: "保险箱只在本机".localized,
-            subtitle: "不想被随手翻到的照片，复制一份到 App 沙盒。".localized,
-            items: [
-                .init("lock.doc", "本地副本".localized, "不联网、不上传，钥匙只在本机。".localized),
-                .init("circle.grid.3x3", "密码盘".localized, "转动内外两圈组合，支持 VoiceOver 调节。".localized),
-                .init("clock.badge.checkmark", "自动锁定".localized, "切到后台立即上锁，可设置延迟。".localized),
-                .init("exclamationmark.triangle", "无法找回".localized, "忘记组合只能重置保险箱。".localized)
-            ]
+            imageName: "welcome-3",
+            text: "一切在本机完成，你的照片只属于你".localized,
+            buttonTitle: "立即授权开始".localized
         )
     ]
 
@@ -53,10 +41,19 @@ struct OnboardingView: View {
             VStack(spacing: 0) {
                 header
 
+                Spacer(minLength: 0)
+
                 TabView(selection: $page) {
                     ForEach(pages.indices, id: \.self) { index in
-                        pageView(pages[index])
-                            .tag(index)
+                        OnboardingCard(
+                            page: pages[index],
+                            isActive: page == index,
+                            reduceMotion: reduceMotion,
+                            isLast: index == pages.count - 1,
+                            action: { advanceOrAuthorize(from: index) }
+                        )
+                        .tag(index)
+                        .accessibilityHidden(page != index)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
@@ -65,9 +62,13 @@ struct OnboardingView: View {
                     value: page
                 )
 
+                Spacer(minLength: 0)
+
                 dots
-                footerButton
             }
+            .padding(.horizontal, Theme.Spacing.page)
+            .padding(.top, Theme.Spacing.sm)
+            .padding(.bottom, Theme.Spacing.lg)
         }
         .dynamicTypeSize(.xSmall ... .accessibility5)
         .task {
@@ -98,77 +99,25 @@ struct OnboardingView: View {
             .padding(.horizontal, Theme.Spacing.sm)
             .accessibilityHint("跳过引导，直接进入主界面".localized)
         }
-        .padding(.horizontal, Theme.Spacing.page)
         .padding(.top, Theme.Spacing.sm)
     }
 
-    private func pageView(_ page: OnboardingPage) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
-                ZStack {
-                    Circle()
-                        .fill(Theme.Surface.sunken)
-                        .frame(width: 96, height: 96)
-                    Image(systemName: page.symbol)
-                        .font(.system(size: 38, weight: .regular))
-                        .foregroundStyle(Theme.Accent.fire)
-                }
-                .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                    Text(page.title)
-                        .font(Theme.Typography.largeTitle)
-                        .foregroundStyle(Theme.Text.primary)
-                    Text(page.subtitle)
-                        .font(Theme.Typography.body)
-                        .foregroundStyle(Theme.Text.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(spacing: Theme.Spacing.md) {
-                    ForEach(Array(page.items.enumerated()), id: \.offset) { _, item in
-                        itemRow(item)
-                    }
-                }
-            }
-            .padding(.horizontal, Theme.Spacing.page)
-            .padding(.top, Theme.Spacing.xl)
-            .padding(.bottom, Theme.Spacing.lg)
-            .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity)
+    private func advanceOrAuthorize(from index: Int) {
+        if index < pages.count - 1 {
+            page = index + 1
+        } else {
+            authorizeAndFinish()
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("%@。%@".localized(page.title, page.subtitle))
     }
 
-    private func itemRow(_ item: OnboardingPage.Item) -> some View {
-        HStack(alignment: .top, spacing: Theme.Spacing.md) {
-            Image(systemName: item.symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.Accent.fire)
-                .frame(width: 30, height: 30)
-                .background {
-                    RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
-                        .fill(Theme.Surface.sunken)
-                }
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(Theme.Typography.headline)
-                    .foregroundStyle(Theme.Text.primary)
-                Text(item.detail)
-                    .font(Theme.Typography.body)
-                    .foregroundStyle(Theme.Text.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
+    private func authorizeAndFinish() {
+        guard !isAuthorizing else { return }
+        isAuthorizing = true
+        Task {
+            _ = await AuthorizationService().requestAccess()
+            isAuthorizing = false
+            onFinish()
         }
-        .padding(Theme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.card)
-        .accessibilityElement(children: .combine)
     }
 
     private var dots: some View {
@@ -187,42 +136,91 @@ struct OnboardingView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 %@ 页，共 %@ 页".localized(page + 1, pages.count))
     }
+}
 
-    private var footerButton: some View {
-        Button {
-            if page < pages.count - 1 {
-                page += 1
-            } else {
-                onFinish()
+/// 单页卡片：插图在上、文案与按钮在下，整体为正方形并居中于屏幕。
+private struct OnboardingCard: View {
+    let page: OnboardingPage
+    let isActive: Bool
+    let reduceMotion: Bool
+    let isLast: Bool
+    let action: () -> Void
+
+    @State private var step: Int = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            let rawSide = min(geo.size.width, geo.size.height) * 0.96
+            let side = min(rawSide, 560)
+
+            VStack(spacing: 0) {
+                // 插图：占上方，弹性撑开
+                Image(page.imageName)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(Theme.Spacing.lg)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .opacity(step >= 1 ? 1 : 0)
+                    .offset(y: step >= 1 ? 0 : 16)
+                    .scaleEffect(step >= 1 ? 1 : 0.97)
+                    .accessibilityHidden(true)
+
+                // 文案
+                Text(page.text)
+                    .font(Theme.Typography.title)
+                    .foregroundStyle(Theme.Text.primary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Theme.Spacing.lg)
+                    .opacity(step >= 2 ? 1 : 0)
+                    .offset(y: step >= 2 ? 0 : 16)
+
+                // 按钮
+                Button(action: action) {
+                    Text(page.buttonTitle)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.neuPill)
+                .padding(.top, Theme.Spacing.lg)
+                .padding(.bottom, Theme.Spacing.xl)
+                .padding(.horizontal, Theme.Spacing.xl)
+                .opacity(step >= 3 ? 1 : 0)
+                .offset(y: step >= 3 ? 0 : 16)
+                .accessibilityHint(
+                    isLast
+                        ? "完成引导并进入主界面".localized
+                        : "进入下一页".localized
+                )
             }
-        } label: {
-            Text(page < pages.count - 1 ? "下一步".localized : "开始整理".localized)
-                .frame(maxWidth: .infinity)
+            .frame(width: side, height: side)
+            .background(
+                NeuSurfaceBackground(style: .raised, cornerRadius: Theme.Radius.stage)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .task(id: isActive) {
+                if isActive { runIntro() }
+            }
         }
-        .buttonStyle(NeuPillButtonStyle())
-        .padding(.horizontal, Theme.Spacing.page)
-        .padding(.bottom, Theme.Spacing.xl)
-        .accessibilityHint(page < pages.count - 1 ? "进入下一页".localized : "完成引导并进入主界面".localized)
+    }
+
+    /// 进入本页时按「图片 → 文案 → 按钮」的顺序依次浮现。
+    private func runIntro() {
+        guard !reduceMotion else {
+            step = 3
+            return
+        }
+        step = 0
+        withAnimation(.easeOut(duration: 0.38).delay(0.05)) { step = 1 }
+        withAnimation(.easeOut(duration: 0.38).delay(0.30)) { step = 2 }
+        withAnimation(.easeOut(duration: 0.38).delay(0.55)) { step = 3 }
     }
 }
 
 private struct OnboardingPage {
-    struct Item {
-        let symbol: String
-        let title: String
-        let detail: String
-
-        init(_ symbol: String, _ title: String, _ detail: String) {
-            self.symbol = symbol
-            self.title = title
-            self.detail = detail
-        }
-    }
-
-    let symbol: String
-    let title: String
-    let subtitle: String
-    let items: [Item]
+    let imageName: String
+    let text: String
+    let buttonTitle: String
 }
 
 #Preview {
