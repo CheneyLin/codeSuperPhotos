@@ -10,9 +10,9 @@ enum DisplayMode: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .system: "跟随系统"
-        case .light: "浅色"
-        case .dark: "深色"
+        case .system: "跟随系统".localized
+        case .light: "浅色".localized
+        case .dark: "深色".localized
         }
     }
 
@@ -67,7 +67,7 @@ final class AppSettings {
 
     /// 右侧收藏夹区的默认相簿；照片右滑时存入这里。
     private(set) var defaultAlbumID: String?
-    private(set) var defaultAlbumTitle: String = "未选择"
+    private(set) var defaultAlbumTitle: String = "未选择".localized
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -79,7 +79,7 @@ final class AppSettings {
         self.destroyMachine = defaults.string(forKey: Keys.destroyMachine)
             .flatMap(MachineKind.init(rawValue:)) ?? .wasteBasket
         self.defaultAlbumID = defaults.string(forKey: Keys.defaultAlbumID)
-        self.defaultAlbumTitle = defaults.string(forKey: Keys.defaultAlbumTitle) ?? "未选择"
+        self.defaultAlbumTitle = defaults.string(forKey: Keys.defaultAlbumTitle) ?? "未选择".localized
     }
 
     func setDefaultAlbum(id: String?, title: String) {

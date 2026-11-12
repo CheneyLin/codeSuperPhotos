@@ -30,21 +30,21 @@ struct StatisticsView: View {
             .padding(.bottom, Theme.Spacing.xxl)
         }
         .background(Theme.Surface.base.ignoresSafeArea())
-        .navigationTitle("整理统计")
+        .navigationTitle("整理统计".localized)
         .navigationBarTitleDisplayMode(.inline)
-        .alert("重置统计？", isPresented: $isResetConfirmPresented) {
-            Button("取消", role: .cancel) {}
-            Button("重置", role: .destructive) {
+        .alert("重置统计？".localized, isPresented: $isResetConfirmPresented) {
+            Button("取消".localized, role: .cancel) {}
+            Button("重置".localized, role: .destructive) {
                 statistics.reset()
-                toastMessage = ToastMessage(text: "统计已重置，照片与保险箱不受影响", kind: .warning)
+                toastMessage = ToastMessage(text: "统计已重置，照片与保险箱不受影响".localized, kind: .warning)
             }
         } message: {
-            Text("只清空整理记录与空间估算，不会删除任何照片、保险箱副本或清单。")
+            Text("只清空整理记录与空间估算，不会删除任何照片、保险箱副本或清单。".localized)
         }
-        .alert("需要 VIP", isPresented: $isVIPHintPresented) {
-            Button("知道了", role: .cancel) {}
+        .alert("需要 VIP".localized, isPresented: $isVIPHintPresented) {
+            Button("知道了".localized, role: .cancel) {}
         } message: {
-            Text("免费版提供今日、本周、累计与五款道具分布；本月统计属于 VIP 权益。可在「设置 → VIP」中一次性购买或恢复购买。")
+            Text("免费版提供今日、本周、累计与五款道具分布；本月统计属于 VIP 权益。可在「设置 → VIP」中一次性购买或恢复购买。".localized)
         }
         .toast($toastMessage, topPadding: 8)
         .task {
@@ -108,7 +108,7 @@ struct StatisticsView: View {
 
     private var headlineCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Text("\(period.title)已清理")
+            Text("%@已清理".localized(period.title))
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.secondary)
 
@@ -117,17 +117,17 @@ struct StatisticsView: View {
                     .font(Theme.Typography.display.monospacedDigit())
                     .foregroundStyle(Theme.Text.primary)
                     .contentTransition(.numericText())
-                Text("件")
+                Text("件".localized)
                     .font(Theme.Typography.headline)
                     .foregroundStyle(Theme.Text.secondary)
             }
 
             HStack(spacing: Theme.Spacing.xs) {
-                Text("释放空间 ≈ \(summary.readableDestroyedBytes)")
+                Text("释放空间 ≈ %@".localized(summary.readableDestroyedBytes))
                     .font(Theme.Typography.body.monospacedDigit())
                     .foregroundStyle(Theme.Text.secondary)
                 if summary.bytesUnknown > 0 {
-                    Text("· \(summary.bytesUnknown) 件大小未知")
+                    Text("· %@ 件大小未知".localized(summary.bytesUnknown))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.tertiary)
                 }
@@ -146,10 +146,10 @@ struct StatisticsView: View {
                       GridItem(.flexible(), spacing: Theme.Spacing.md)],
             spacing: Theme.Spacing.md
         ) {
-            metricCard(title: "已入库", value: "\(summary.imported)", unit: "件", symbol: "lock.fill")
-            metricCard(title: "已取出", value: "\(summary.restored)", unit: "件", symbol: "arrow.uturn.backward")
-            metricCard(title: "已浏览", value: "\(summary.browsed)", unit: "张", symbol: "eye")
-            metricCard(title: "连续整理", value: "\(statistics.streak())", unit: "天", symbol: "flame")
+            metricCard(title: "已入库".localized, value: "\(summary.imported)", unit: "件".localized, symbol: "lock.fill")
+            metricCard(title: "已取出".localized, value: "\(summary.restored)", unit: "件".localized, symbol: "arrow.uturn.backward")
+            metricCard(title: "已浏览".localized, value: "\(summary.browsed)", unit: "张".localized, symbol: "eye")
+            metricCard(title: "连续整理".localized, value: "\(statistics.streak())", unit: "天".localized, symbol: "flame")
         }
     }
 
@@ -185,19 +185,19 @@ struct StatisticsView: View {
     private var preferenceCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             HStack {
-                Text("道具使用分布")
+                Text("道具使用分布".localized)
                     .font(Theme.Typography.headline)
                     .foregroundStyle(Theme.Text.primary)
                 Spacer()
                 if let top = summary.topMachine {
-                    Text("最常用 · \(top.displayName)")
+                    Text("最常用 · %@".localized(top.displayName))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.secondary)
                 }
             }
 
             if summary.destroyed == 0 {
-                Text("这个周期还没有销毁记录。")
+                Text("这个周期还没有销毁记录。".localized)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Text.secondary)
             } else {
@@ -219,10 +219,13 @@ struct StatisticsView: View {
                 .foregroundStyle(Theme.Accent.brass)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("保险箱占用")
+                Text("保险箱占用".localized)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.secondary)
-                Text("\(vault.records.count) 件 · \(vault.totalBytes > 0 ? VaultLimits.readableBytes(vault.totalBytes) : "0 KB")")
+                Text("%@ 件 · %@".localized(
+                    vault.records.count,
+                    vault.totalBytes > 0 ? VaultLimits.readableBytes(vault.totalBytes) : "0 KB"
+                ))
                     .font(Theme.Typography.headline.monospacedDigit())
                     .foregroundStyle(Theme.Text.primary)
             }
@@ -237,7 +240,7 @@ struct StatisticsView: View {
     // MARK: - 页脚与重置
 
     private var footer: some View {
-        Text("口径：已浏览 = 单次停留 ≥ 0.5 秒的照片，按唯一资产计；已销毁件数按当时选中的道具（废纸篓 / 碎纸机 / 壁炉 / 邮筒 / 任意门）分别统计，占比以本周期销毁总数为分母；释放空间为本地资源大小估算，iCloud 未下载的资产计为未知；系统『最近删除』保留 30 天，空间由系统延迟回收。")
+        Text("口径：已浏览 = 单次停留 ≥ 0.5 秒的照片，按唯一资产计；已销毁件数按当时选中的道具（废纸篓 / 碎纸机 / 壁炉 / 邮筒 / 任意门）分别统计，占比以本周期销毁总数为分母；释放空间为本地资源大小估算，iCloud 未下载的资产计为未知；系统『最近删除』保留 30 天，空间由系统延迟回收。".localized)
             .font(Theme.Typography.caption)
             .foregroundStyle(Theme.Text.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -247,7 +250,7 @@ struct StatisticsView: View {
         Button {
             isResetConfirmPresented = true
         } label: {
-            Text("重置统计")
+            Text("重置统计".localized)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(NeuButtonStyle(variant: .inset, tint: Theme.State.danger))

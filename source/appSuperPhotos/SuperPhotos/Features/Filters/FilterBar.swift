@@ -20,7 +20,7 @@ struct FilterBar: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("\(photoCount.formatted()) 张")
+                    Text("%@ 张".localized(photoCount.formatted()))
                         .font(Theme.Typography.caption.monospacedDigit())
                         .foregroundStyle(Theme.Text.secondary)
                         .fixedSize()
@@ -38,7 +38,7 @@ struct FilterBar: View {
                 .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("相簿：\(albumTitle)，\(photoCount) 张照片")
+            .accessibilityLabel("相簿：%@，%@ 张照片".localized(albumTitle, photoCount))
 
             Spacer(minLength: 0)
         }

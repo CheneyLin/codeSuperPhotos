@@ -91,30 +91,30 @@ final class VaultSyncEngine {
     var statusText: String {
         switch phase {
         case .off:
-            "未开启"
+            "未开启".localized
         case .vipRequired:
-            "VIP 专属，升级后可用"
+            "VIP 专属，升级后可用".localized
         case .ready:
             if let lastSyncDate {
-                "已同步 \(syncedItemCount) 项 · 上次 \(Self.timeFormatter.string(from: lastSyncDate))"
+                "已同步 %@ 项 · 上次 %@".localized(syncedItemCount, Self.timeFormatter.string(from: lastSyncDate))
             } else {
-                "等待首次同步"
+                "等待首次同步".localized
             }
         case .syncing:
-            "正在同步…"
+            "正在同步…".localized
         case .noAccount:
-            "请先在系统设置登录 iCloud"
+            "请先在系统设置登录 iCloud".localized
         case .restricted:
-            "此设备的 iCloud 访问受限"
+            "此设备的 iCloud 访问受限".localized
         case .failure(let message):
             message
         }
     }
 
     var detailText: String {
-        var text = "标准档内容同步到你的 iCloud 私有数据库；强加密内容与密码始终只留在本机，每台设备各自设置密码。"
+        var text = "标准档内容同步到你的 iCloud 私有数据库；强加密内容与密码始终只留在本机，每台设备各自设置密码。".localized
         if skippedStrongItemCount > 0 {
-            text += " 当前有 \(skippedStrongItemCount) 项强加密内容未上传。"
+            text += " 当前有 %@ 项强加密内容未上传。".localized(skippedStrongItemCount)
         }
         return text
     }
@@ -125,7 +125,7 @@ final class VaultSyncEngine {
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.locale = .current
         formatter.dateFormat = "HH:mm"
         return formatter
     }()
@@ -185,7 +185,7 @@ final class VaultSyncEngine {
                 phase = .restricted
                 return
             default:
-                phase = .failure("暂时无法确认 iCloud 账号状态，请稍后重试。")
+                phase = .failure("暂时无法确认 iCloud 账号状态，请稍后重试。".localized)
                 return
             }
 
@@ -404,23 +404,23 @@ final class VaultSyncEngine {
 
     private static func describe(_ error: Error) -> String {
         guard let ckError = error as? CKError else {
-            return "同步失败：\(error.localizedDescription)"
+            return "同步失败：%@".localized(error.localizedDescription)
         }
         switch ckError.code {
         case .notAuthenticated:
-            return "尚未登录 iCloud，请在系统设置登录 Apple ID。"
+            return "尚未登录 iCloud，请在系统设置登录 Apple ID。".localized
         case .networkUnavailable, .networkFailure:
-            return "网络不可用，请联网后重试。"
+            return "网络不可用，请联网后重试。".localized
         case .quotaExceeded:
-            return "iCloud 储存空间不足，请清理后重试。"
+            return "iCloud 储存空间不足，请清理后重试。".localized
         case .permissionFailure, .invalidArguments:
-            return "iCloud 权限未就绪：请在 App Store Connect 为 App ID 启用 iCloud / CloudKit 能力。"
+            return "iCloud 权限未就绪：请在 App Store Connect 为 App ID 启用 iCloud / CloudKit 能力。".localized
         case .unknownItem:
-            return "CloudKit 容器尚未就绪，请确认 iCloud.com.gpwzw.appSuperPhotos 已创建。"
+            return "CloudKit 容器尚未就绪，请确认 iCloud.com.gpwzw.appSuperPhotos 已创建。".localized
         case .serviceUnavailable, .zoneBusy, .requestRateLimited:
-            return "iCloud 暂时繁忙，请稍后重试。"
+            return "iCloud 暂时繁忙，请稍后重试。".localized
         default:
-            return "同步失败：\(error.localizedDescription)"
+            return "同步失败：%@".localized(error.localizedDescription)
         }
     }
 }

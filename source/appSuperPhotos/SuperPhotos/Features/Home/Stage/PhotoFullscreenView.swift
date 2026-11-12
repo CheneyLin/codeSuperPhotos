@@ -279,7 +279,7 @@ struct PhotoFullscreenView: View {
                         .frame(width: 40, height: 40)
                         .background(.black.opacity(0.35), in: Circle())
                 }
-                .accessibilityLabel("关闭全屏")
+                .accessibilityLabel("关闭全屏".localized)
 
                 Spacer()
 
@@ -317,7 +317,7 @@ struct PhotoFullscreenView: View {
                     .background(.black.opacity(0.35), in: Circle())
             }
             .disabled(index <= 0)
-            .accessibilityLabel("上一张")
+            .accessibilityLabel("上一张".localized)
 
             VStack(spacing: 2) {
                 Text(currentItem?.shortDateText ?? "—")
@@ -344,7 +344,7 @@ struct PhotoFullscreenView: View {
                     .background(.black.opacity(0.35), in: Circle())
             }
             .disabled(index + 1 >= items.count)
-            .accessibilityLabel("下一张")
+            .accessibilityLabel("下一张".localized)
         }
     }
 }
@@ -380,7 +380,7 @@ private struct FullscreenStillImage: View {
                 VStack(spacing: Theme.Spacing.sm) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 22))
-                    Text("无法加载这张照片")
+                    Text("无法加载这张照片".localized)
                         .font(Theme.Typography.caption)
                 }
                 .foregroundStyle(.white.opacity(0.7))
@@ -490,7 +490,7 @@ private struct FullscreenVideoPlayer: View {
                 VStack(spacing: Theme.Spacing.sm) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 22))
-                    Text("无法加载这段视频")
+                    Text("无法加载这段视频".localized)
                         .font(Theme.Typography.caption)
                 }
                 .foregroundStyle(.white.opacity(0.7))

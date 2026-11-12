@@ -9,7 +9,7 @@ enum VaultLimits {
 
     static func mediaGate(for kind: MediaKind, tier: EntitlementTier) -> GateResult {
         guard tier == .free, !kind.isStillImage else { return .allowed }
-        return .requiresVIP("\(kind.displayName)需要 VIP；免费版保险箱只支持静态图片")
+        return .requiresVIP("%@需要 VIP；免费版保险箱只支持静态图片".localized(kind.displayName))
     }
 
     static func quotaGate(
@@ -23,13 +23,13 @@ enum VaultLimits {
 
         let projectedItems = usedItems + additionalItems
         if projectedItems > freeItemLimit {
-            return .quotaExceeded("免费版保险箱最多 \(freeItemLimit) 件，当前已用 \(usedItems) 件")
+            return .quotaExceeded("免费版保险箱最多 %@ 件，当前已用 %@ 件".localized(freeItemLimit, usedItems))
         }
 
         let projectedBytes = usedBytes + additionalBytes
         if projectedBytes > freeByteLimit {
             return .quotaExceeded(
-                "免费版保险箱最多 2GB，当前已用 \(readableBytes(usedBytes))"
+                "免费版保险箱最多 2GB，当前已用 %@".localized(readableBytes(usedBytes))
             )
         }
         return .allowed

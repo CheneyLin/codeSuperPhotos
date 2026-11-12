@@ -16,17 +16,17 @@ enum VaultEncryptionMode: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .standard: "标准"
-        case .strong: "强加密"
+        case .standard: "标准".localized
+        case .strong: "强加密".localized
         }
     }
 
     var detailText: String {
         switch self {
         case .standard:
-            "文件以普通格式存放在 App 沙盒，受 iOS 沙盒与系统文件保护。App 密码只保护界面访问；开启 iCloud 同步后，此档内容会同步到你的 iCloud 私有数据库。"
+            "文件以普通格式存放在 App 沙盒，受 iOS 沙盒与系统文件保护。App 密码只保护界面访问；开启 iCloud 同步后，此档内容会同步到你的 iCloud 私有数据库。".localized
         case .strong:
-            "文件使用 AES-GCM 与仅存本机的 Keychain 内容密钥加密。App 密码仍只负责界面解锁；密钥不出本机，此档内容不参与 iCloud 同步。"
+            "文件使用 AES-GCM 与仅存本机的 Keychain 内容密钥加密。App 密码仍只负责界面解锁；密钥不出本机，此档内容不参与 iCloud 同步。".localized
         }
     }
 
@@ -48,11 +48,11 @@ enum VaultCryptoError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .keyUnavailable: "内容密钥不可用"
-        case .fileMissing: "保险箱文件不存在"
-        case .malformedFile: "文件格式无法识别"
-        case .authenticationFailed: "文件校验失败，可能已损坏"
-        case .writeFailed: "写入文件失败"
+        case .keyUnavailable: "内容密钥不可用".localized
+        case .fileMissing: "保险箱文件不存在".localized
+        case .malformedFile: "文件格式无法识别".localized
+        case .authenticationFailed: "文件校验失败，可能已损坏".localized
+        case .writeFailed: "写入文件失败".localized
         }
     }
 }

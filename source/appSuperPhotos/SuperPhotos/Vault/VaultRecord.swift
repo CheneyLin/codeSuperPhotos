@@ -59,14 +59,15 @@ final class VaultRecord {
     }
 
     var displayDateText: String {
-        guard let capturedAt else { return "未知日期" }
+        guard let capturedAt else { return "未知日期".localized }
         return Self.dateFormatter.string(from: capturedAt)
     }
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans_CN")
-        formatter.dateFormat = "yyyy年M月d日"
+        // 跟随当前语言：简中显示「2026年11月12日」，英文显示「Nov 12, 2026」。
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("yMd")
         return formatter
     }()
 }

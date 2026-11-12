@@ -101,7 +101,7 @@ struct PegboardHookButton: View {
                 }
         )
         .accessibilityLabel(title)
-        .accessibilityHint(isEnabled ? accessibilityHintText : "当前不可用，轻点会晃动提示")
+        .accessibilityHint(isEnabled ? accessibilityHintText : "当前不可用，轻点会晃动提示".localized)
     }
 }
 

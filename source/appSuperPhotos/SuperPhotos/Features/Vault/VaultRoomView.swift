@@ -64,18 +64,18 @@ struct VaultRoomView: View {
         }) { request in
             ShareSheet(items: request.urls)
         }
-        .alert("永久删除保险箱副本？", isPresented: $isDeleteConfirmPresented) {
-            Button("取消", role: .cancel) {}
-            Button("永久删除", role: .destructive) {
+        .alert("永久删除保险箱副本？".localized, isPresented: $isDeleteConfirmPresented) {
+            Button("取消".localized, role: .cancel) {}
+            Button("永久删除".localized, role: .destructive) {
                 vault.permanentDelete(ids: Array(selectedIDs))
                 selectedIDs.removeAll()
                 toastMessage = ToastMessage(
-                    text: "已永久删除保险箱副本，系统『最近删除』不受影响",
+                    text: "已永久删除保险箱副本，系统『最近删除』不受影响".localized,
                     kind: .warning
                 )
             }
         } message: {
-            Text("只删除 App 内的副本与清单，不触碰系统相簿。原件已在入库时移入系统『最近删除』。")
+            Text("只删除 App 内的副本与清单，不触碰系统相簿。原件已在入库时移入系统『最近删除』。".localized)
         }
         .toast($toastMessage, topPadding: 72)
     }
@@ -85,10 +85,10 @@ struct VaultRoomView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: Theme.Spacing.md) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("私密保险箱")
+                Text("私密保险箱".localized)
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.Text.primary)
-                Text("\(vault.records.count) 件 · \(VaultLimits.readableBytes(vault.totalBytes))")
+                Text("%@ 件 · %@".localized(vault.records.count, VaultLimits.readableBytes(vault.totalBytes)))
                     .font(Theme.Typography.caption.monospacedDigit())
                     .foregroundStyle(Theme.Text.secondary)
             }
@@ -96,7 +96,7 @@ struct VaultRoomView: View {
             Spacer()
 
             if !vault.records.isEmpty {
-                Button(selectedIDs.isEmpty ? "全选" : "取消选择") {
+                Button(selectedIDs.isEmpty ? "全选".localized : "取消选择".localized) {
                     withAnimation(Theme.Motion.animation(.fast, reduceMotion: reduceMotion)) {
                         if selectedIDs.isEmpty {
                             selectedIDs = Set(vault.records.map(\.id))
@@ -115,7 +115,7 @@ struct VaultRoomView: View {
                 Image(systemName: "lock.fill")
             }
             .buttonStyle(.neuIcon)
-            .accessibilityLabel("锁上并退出")
+            .accessibilityLabel("锁上并退出".localized)
         }
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.vertical, Theme.Spacing.md)
@@ -133,19 +133,19 @@ struct VaultRoomView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Theme.State.danger)
 
-            Text("有 \(pendingRemovalCount) 件原件仍在系统相簿")
+            Text("有 %@ 件原件仍在系统相簿".localized(pendingRemovalCount))
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.primary)
 
             Spacer()
 
-            Button("重试移出") {
+            Button("重试移出".localized) {
                 Task {
                     let count = await vault.retryPendingRemoval()
                     if count > 0 {
-                        toastMessage = ToastMessage(text: "已移出 \(count) 件原件", kind: .success)
+                        toastMessage = ToastMessage(text: "已移出 %@ 件原件".localized(count), kind: .success)
                     } else {
-                        toastMessage = ToastMessage(text: "仍未移出，请稍后再试", kind: .warning)
+                        toastMessage = ToastMessage(text: "仍未移出，请稍后再试".localized, kind: .warning)
                     }
                 }
             }
@@ -161,10 +161,10 @@ struct VaultRoomView: View {
             Image(systemName: "shippingbox")
                 .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(Theme.Text.tertiary)
-            Text("保险箱还是空的")
+            Text("保险箱还是空的".localized)
                 .font(Theme.Typography.headline)
                 .foregroundStyle(Theme.Text.primary)
-            Text("在首页把照片存入保险箱，原件会从系统相簿移入『最近删除』。")
+            Text("在首页把照片存入保险箱，原件会从系统相簿移入『最近删除』。".localized)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.secondary)
                 .multilineTextAlignment(.center)
@@ -201,31 +201,31 @@ struct VaultRoomView: View {
             Button {
                 restore(ids: [record.id])
             } label: {
-                Label("取出到相册", systemImage: "arrow.up.forward.app")
+                Label("取出到相册".localized, systemImage: "arrow.up.forward.app")
             }
             Button {
                 export(ids: [record.id])
             } label: {
-                Label("导出", systemImage: "square.and.arrow.up")
+                Label("导出".localized, systemImage: "square.and.arrow.up")
             }
             Button {
                 selectedIDs.insert(record.id)
             } label: {
-                Label("选择", systemImage: "checkmark.circle")
+                Label("选择".localized, systemImage: "checkmark.circle")
             }
             Divider()
             Button(role: .destructive) {
                 selectedIDs = [record.id]
                 isDeleteConfirmPresented = true
             } label: {
-                Label("永久删除副本", systemImage: "trash")
+                Label("永久删除副本".localized, systemImage: "trash")
             }
         }
     }
 
     private var selectionToolbar: some View {
         HStack(spacing: Theme.Spacing.md) {
-            Text("已选 \(selectedIDs.count) 件")
+            Text("已选 %@ 件".localized(selectedIDs.count))
                 .font(Theme.Typography.headline.monospacedDigit())
                 .foregroundStyle(Theme.Text.primary)
 
@@ -234,7 +234,7 @@ struct VaultRoomView: View {
             Button {
                 restore(ids: selectedIDs)
             } label: {
-                Label("取出", systemImage: "arrow.up.forward.app")
+                Label("取出".localized, systemImage: "arrow.up.forward.app")
             }
             .buttonStyle(
                 NeuPillButtonStyle(
@@ -248,7 +248,7 @@ struct VaultRoomView: View {
                 Image(systemName: "square.and.arrow.up")
             }
             .buttonStyle(.neuIcon)
-            .accessibilityLabel("导出")
+            .accessibilityLabel("导出".localized)
 
             Button {
                 isDeleteConfirmPresented = true
@@ -256,7 +256,7 @@ struct VaultRoomView: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(NeuIconButtonStyle(tint: Theme.State.danger))
-            .accessibilityLabel("永久删除")
+            .accessibilityLabel("永久删除".localized)
         }
         .padding(Theme.Spacing.md)
         .neuSurface(.raised, cornerRadius: Theme.Radius.dock)
@@ -286,12 +286,12 @@ struct VaultRoomView: View {
 
             if summary.failed == 0 {
                 toastMessage = ToastMessage(
-                    text: "已取出 \(summary.restored) 件并放回相册",
+                    text: "已取出 %@ 件并放回相册".localized(summary.restored),
                     kind: .success
                 )
             } else {
                 toastMessage = ToastMessage(
-                    text: "取出 \(summary.restored) 件，失败 \(summary.failed) 件（副本已保留）",
+                    text: "取出 %@ 件，失败 %@ 件（副本已保留）".localized(summary.restored, summary.failed),
                     kind: .warning
                 )
             }
@@ -303,7 +303,7 @@ struct VaultRoomView: View {
         Task {
             let result = await vault.exportURLs(ids: ids)
             guard !result.urls.isEmpty else {
-                toastMessage = ToastMessage(text: "没有可导出的文件", kind: .warning)
+                toastMessage = ToastMessage(text: "没有可导出的文件".localized, kind: .warning)
                 return
             }
             exportRequest = VaultExportRequest(

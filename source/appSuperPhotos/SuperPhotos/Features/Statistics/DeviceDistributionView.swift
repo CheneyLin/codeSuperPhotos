@@ -32,8 +32,8 @@ struct DeviceDistributionBar: View {
     }
 
     private var distributionAccessibilityLabel: String {
-        let parts = activeMachines.map { "\($0.displayName) \(summary.count(for: $0)) 件" }
-        return parts.isEmpty ? "暂无销毁记录" : parts.joined(separator: "，")
+        let parts = activeMachines.map { "%@ %@ 件".localized($0.displayName, summary.count(for: $0)) }
+        return parts.isEmpty ? "暂无销毁记录".localized : parts.joined(separator: "，")
     }
 }
 
@@ -69,7 +69,7 @@ struct DeviceDistributionList: View {
                         .font(Theme.Typography.caption.weight(.semibold))
                         .foregroundStyle(Theme.Text.primary)
                     Spacer()
-                    Text("\(count) 件 · \(percent)%")
+                    Text("%@ 件 · %@%".localized(count, percent))
                         .font(Theme.Typography.caption.monospacedDigit())
                         .foregroundStyle(Theme.Text.secondary)
                 }
@@ -87,7 +87,7 @@ struct DeviceDistributionList: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(machine.displayName) \(count) 件，占 \(percent)%")
+        .accessibilityLabel("%@ %@ 件，占 %@%".localized(machine.displayName, count, percent))
     }
 }
 

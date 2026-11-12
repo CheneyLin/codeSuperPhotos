@@ -257,7 +257,7 @@ struct VaultFullscreenView: View {
                         .frame(width: 40, height: 40)
                         .background(.black.opacity(0.35), in: Circle())
                 }
-                .accessibilityLabel("关闭全屏")
+                .accessibilityLabel("关闭全屏".localized)
 
                 Spacer()
 
@@ -294,7 +294,7 @@ struct VaultFullscreenView: View {
                     .background(.black.opacity(0.35), in: Circle())
             }
             .disabled(index <= 0)
-            .accessibilityLabel("上一张")
+            .accessibilityLabel("上一张".localized)
 
             VStack(spacing: 2) {
                 Text(currentRecord?.displayDateText ?? "—")
@@ -321,7 +321,7 @@ struct VaultFullscreenView: View {
                     .background(.black.opacity(0.35), in: Circle())
             }
             .disabled(index + 1 >= records.count)
-            .accessibilityLabel("下一张")
+            .accessibilityLabel("下一张".localized)
         }
     }
 }
@@ -337,7 +337,7 @@ private struct VaultStillImage: View {
     @Environment(VaultStore.self) private var vault
     @State private var image: UIImage?
     @State private var failed = false
-    @State private var loadingText = "正在读取…"
+    @State private var loadingText = "正在读取…".localized
 
     private var targetSize: CGSize {
         CGSize(
@@ -358,7 +358,7 @@ private struct VaultStillImage: View {
                 VStack(spacing: Theme.Spacing.sm) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 22))
-                    Text("无法读取这个保险箱文件")
+                    Text("无法读取这个保险箱文件".localized)
                         .font(Theme.Typography.caption)
                 }
                 .foregroundStyle(.white.opacity(0.7))
@@ -375,7 +375,7 @@ private struct VaultStillImage: View {
         .task(id: record.id) {
             failed = false
             image = nil
-            loadingText = vault.encryptionMode == .strong ? "正在解密…" : "正在读取…"
+            loadingText = vault.encryptionMode == .strong ? "正在解密…".localized : "正在读取…".localized
 
             guard let media = try? await vault.prepareMedia(for: record) else {
                 failed = true
@@ -413,7 +413,7 @@ private struct VaultLivePhotoDisplay: View {
     @Environment(VaultStore.self) private var vault
     @State private var livePhoto: PHLivePhoto?
     @State private var failed = false
-    @State private var loadingText = "正在读取…"
+    @State private var loadingText = "正在读取…".localized
     @State private var prepared: VaultPreparedMedia?
 
     private var targetSize: CGSize {
@@ -452,7 +452,7 @@ private struct VaultLivePhotoDisplay: View {
             livePhoto = nil
             prepared?.cleanup()
             prepared = nil
-            loadingText = vault.encryptionMode == .strong ? "正在解密…" : "正在读取…"
+            loadingText = vault.encryptionMode == .strong ? "正在解密…".localized : "正在读取…".localized
 
             guard let media = try? await vault.prepareMedia(for: record),
                   let videoURL = media.videoURL else {
@@ -513,7 +513,7 @@ private struct VaultVideoPlayer: View {
     @Environment(VaultStore.self) private var vault
     @State private var player: AVPlayer?
     @State private var failed = false
-    @State private var loadingText = "正在读取…"
+    @State private var loadingText = "正在读取…".localized
     @State private var prepared: VaultPreparedMedia?
 
     var body: some View {
@@ -524,7 +524,7 @@ private struct VaultVideoPlayer: View {
                 VStack(spacing: Theme.Spacing.sm) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 22))
-                    Text("无法读取这段保险箱视频")
+                    Text("无法读取这段保险箱视频".localized)
                         .font(Theme.Typography.caption)
                 }
                 .foregroundStyle(.white.opacity(0.7))
@@ -544,7 +544,7 @@ private struct VaultVideoPlayer: View {
             player = nil
             prepared?.cleanup()
             prepared = nil
-            loadingText = vault.encryptionMode == .strong ? "正在解密…" : "正在读取…"
+            loadingText = vault.encryptionMode == .strong ? "正在解密…".localized : "正在读取…".localized
 
             guard let media = try? await vault.prepareMedia(for: record) else {
                 failed = true

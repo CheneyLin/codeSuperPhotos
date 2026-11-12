@@ -16,10 +16,10 @@ struct PermissionIntroView: View {
                 .neuSurface(.inset, cornerRadius: Theme.Radius.stage)
 
             VStack(spacing: Theme.Spacing.sm) {
-                Text("SuperPhotos 需要读取相簿")
+                Text("SuperPhotos 需要读取相簿".localized)
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.Text.primary)
-                Text("只在本机浏览与整理照片，不上传、不联网。")
+                Text("只在本机浏览与整理照片，不上传、不联网。".localized)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Text.secondary)
                     .multilineTextAlignment(.center)
@@ -34,7 +34,7 @@ struct PermissionIntroView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
-                    Text("允许访问相簿")
+                    Text("允许访问相簿".localized)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -60,10 +60,10 @@ struct PermissionDeniedView: View {
                 .neuSurface(.inset, cornerRadius: Theme.Radius.stage)
 
             VStack(spacing: Theme.Spacing.sm) {
-                Text("没有访问相簿的权限")
+                Text("没有访问相簿的权限".localized)
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.Text.primary)
-                Text("请在系统设置中允许 SuperPhotos 访问照片，之后回到这里即可继续。")
+                Text("请在系统设置中允许 SuperPhotos 访问照片，之后回到这里即可继续。".localized)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Text.secondary)
                     .multilineTextAlignment(.center)
@@ -74,7 +74,7 @@ struct PermissionDeniedView: View {
             Button {
                 onOpenSettings()
             } label: {
-                Text("去系统设置")
+                Text("去系统设置".localized)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.neuPill)
@@ -93,13 +93,13 @@ struct LimitedAccessBanner: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Theme.Accent.brass)
 
-            Text("仅能浏览你选中的照片")
+            Text("仅能浏览你选中的照片".localized)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.secondary)
 
             Spacer(minLength: Theme.Spacing.sm)
 
-            Button("管理", action: onManage)
+            Button("管理".localized, action: onManage)
                 .font(Theme.Typography.caption.weight(.semibold))
                 .foregroundStyle(Theme.Accent.brass)
         }

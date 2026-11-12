@@ -27,12 +27,12 @@ struct TaskDeskView: View {
 
             if isTaskActive {
                 VStack(spacing: 6) {
-                    Text(isTaskFinished ? "上一批已处理完" : "上次整理到「\(albumTitle)」")
+                    Text(isTaskFinished ? "上一批已处理完".localized : "上次整理到「%@」".localized(albumTitle))
                         .font(Theme.Typography.headline)
                         .foregroundStyle(Theme.Text.primary)
                         .multilineTextAlignment(.center)
 
-                    Text(isTaskFinished ? "点下方按钮统一加密与删除" : "已处理 \(processed) / \(total) 张")
+                    Text(isTaskFinished ? "点下方按钮统一加密与删除".localized : "已处理 %@ / %@ 张".localized(processed, total))
                         .font(Theme.Typography.caption.monospacedDigit())
                         .foregroundStyle(Theme.Text.secondary)
                 }
@@ -41,7 +41,7 @@ struct TaskDeskView: View {
             VStack(spacing: Theme.Spacing.md) {
                 // 废纸篓队列提示：只在本批已有待删除时才出现，避免常驻干扰。
                 if isTaskActive, pendingDestroy > 0 {
-                    Text("待删除 \(pendingDestroy) 张")
+                    Text("待删除 %@ 张".localized(pendingDestroy))
                         .font(Theme.Typography.caption.monospacedDigit())
                         .foregroundStyle(Theme.State.danger)
                         .lineLimit(1)
@@ -68,8 +68,8 @@ struct TaskDeskView: View {
     }
 
     private var primaryTitle: String {
-        guard isTaskActive else { return "开始" }
-        return isTaskFinished ? "完成整理" : "继续整理"
+        guard isTaskActive else { return "开始".localized }
+        return isTaskFinished ? "完成整理".localized : "继续整理".localized
     }
 
     private var primaryButton: some View {
@@ -97,12 +97,12 @@ struct TaskDeskView: View {
                     .scaledToFit()
                     .frame(width: 18, height: 18)
 
-                Text("直接结束")
+                Text("直接结束".localized)
             }
         }
         // 图标 14→18、文字 12→15（body），整体调大一档，纳入设计系统文字按钮。
         .buttonStyle(NeuTextButtonStyle())
-        .accessibilityHint("未处理的照片按保留处理，随后进入结算")
+        .accessibilityHint("未处理的照片按保留处理，随后进入结算".localized)
         .hitDebugRegion("直接结束")
     }
 

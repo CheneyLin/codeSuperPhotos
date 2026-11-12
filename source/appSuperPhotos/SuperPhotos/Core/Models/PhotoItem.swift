@@ -18,14 +18,15 @@ struct PhotoItem: Identifiable, Hashable, Sendable {
 
     /// 舞台页码等处的短日期文案
     var shortDateText: String {
-        guard let createdAt else { return "未知日期" }
+        guard let createdAt else { return "未知日期".localized }
         return Self.dateFormatter.string(from: createdAt)
     }
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans_CN")
-        formatter.dateFormat = "yyyy年M月d日"
+        // 跟随当前语言：简中显示「2026年11月12日」，英文显示「Nov 12, 2026」。
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("yMd")
         return formatter
     }()
 }
@@ -35,7 +36,7 @@ struct LibraryFilter: Equatable, Sendable {
     var albumLocalID: String?
     var albumTitle: String
 
-    static let all = LibraryFilter(albumLocalID: nil, albumTitle: "全部照片")
+    static let all = LibraryFilter(albumLocalID: nil, albumTitle: "全部照片".localized)
 
     var title: String { albumTitle }
 }

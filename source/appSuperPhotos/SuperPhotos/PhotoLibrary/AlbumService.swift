@@ -24,9 +24,9 @@ enum AlbumEditError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .albumMissing: "目标相簿已不存在，请在右侧重新选择"
-        case .assetsMissing: "照片已不在相簿中"
-        case .notAuthorized: "需要相簿读写权限才能加入收藏夹"
+        case .albumMissing: "目标相簿已不存在，请在右侧重新选择".localized
+        case .assetsMissing: "照片已不在相簿中".localized
+        case .notAuthorized: "需要相簿读写权限才能加入收藏夹".localized
         }
     }
 }
@@ -104,7 +104,7 @@ final class AlbumService {
             users.append(
                 AlbumItem(
                     id: collection.localIdentifier,
-                    title: collection.localizedTitle ?? "未命名相簿",
+                    title: collection.localizedTitle ?? "未命名相簿".localized,
                     kind: .user,
                     count: count,
                     symbolName: "folder",
@@ -270,10 +270,10 @@ final class AlbumService {
     }
 
     private static let smartDescriptors: [SmartDescriptor] = [
-        .init(subtype: .smartAlbumFavorites, title: "收藏", symbolName: "heart"),
-        .init(subtype: .smartAlbumVideos, title: "视频", symbolName: "video"),
-        .init(subtype: .smartAlbumLivePhotos, title: "实况照片", symbolName: "livephoto"),
-        .init(subtype: .smartAlbumScreenshots, title: "截图", symbolName: "camera.viewfinder"),
-        .init(subtype: .smartAlbumPanoramas, title: "全景照片", symbolName: "pano")
+        .init(subtype: .smartAlbumFavorites, title: "收藏".localized, symbolName: "heart"),
+        .init(subtype: .smartAlbumVideos, title: "视频".localized, symbolName: "video"),
+        .init(subtype: .smartAlbumLivePhotos, title: "实况照片".localized, symbolName: "livephoto"),
+        .init(subtype: .smartAlbumScreenshots, title: "截图".localized, symbolName: "camera.viewfinder"),
+        .init(subtype: .smartAlbumPanoramas, title: "全景照片".localized, symbolName: "pano")
     ]
 }

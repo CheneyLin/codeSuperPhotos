@@ -9,11 +9,11 @@ enum VaultImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingResource:
-            return "找不到可复制的原始资源"
+            return "找不到可复制的原始资源".localized
         case .diskInsufficient:
-            return "剩余磁盘空间不足，请先清理后再试"
+            return "剩余磁盘空间不足，请先清理后再试".localized
         case .writeFailed(let detail):
-            return "写入保险箱失败：\(detail)"
+            return "写入保险箱失败：%@".localized(detail)
         }
     }
 }

@@ -321,11 +321,11 @@ struct HomeView: View {
         if showsStage {
             PegboardHookButton(
                 assetName: "icon_undo",
-                title: "撤销上一步",
+                title: "撤销上一步".localized,
                 iconSize: 60,
                 isEnabled: task.canUndo && !isExecutingTaskEnd,
                 disabledAssetName: "icon_undo_disable",
-                accessibilityHintText: "把最近一次决定退回舞台，并恢复对应的待销毁或待加密计数"
+                accessibilityHintText: "把最近一次决定退回舞台，并恢复对应的待销毁或待加密计数".localized
             ) {
                 undoLastStep()
             }
@@ -333,7 +333,7 @@ struct HomeView: View {
         } else {
             PegboardHookButton(
                 assetName: "icon_vault_keys",
-                title: "私密保险箱，已存 \(vault.records.count) 件",
+                title: "私密保险箱，已存 %@ 件".localized(vault.records.count),
                 iconSize: 64,
                 swayToken: keySwayToken
             ) {
@@ -349,10 +349,10 @@ struct HomeView: View {
         if showsStage {
             PegboardHookButton(
                 assetName: "icon_finish",
-                title: "结束并结算",
+                title: "结束并结算".localized,
                 iconSize: 60,
                 isEnabled: !isExecutingTaskEnd && !task.isFinished,
-                accessibilityHintText: "未处理的照片按保留处理，随后进入结算"
+                accessibilityHintText: "未处理的照片按保留处理，随后进入结算".localized
             ) {
                 finishTaskNow()
             }
@@ -360,7 +360,7 @@ struct HomeView: View {
         } else {
             PegboardHookButton(
                 assetName: "icon_config",
-                title: "设置",
+                title: "设置".localized,
                 iconSize: 64
             ) {
                 isSettingsPresented = true
@@ -407,7 +407,7 @@ struct HomeView: View {
             .onLongPressGesture(minimumDuration: 2) {
                 let enabled = hitDebugToggle()
                 toastMessage = ToastMessage(
-                    text: enabled ? "命中调试：开，点按后看左上角日志" : "命中调试：关",
+                    text: enabled ? "命中调试：开，点按后看左上角日志".localized : "命中调试：关".localized,
                     kind: .info
                 )
             }
@@ -703,7 +703,7 @@ struct HomeView: View {
             },
             onFavoriteRejected: {
                 toastMessage = ToastMessage(
-                    text: "先在右侧选择一个默认收藏夹",
+                    text: "先在右侧选择一个默认收藏夹".localized,
                     kind: .warning
                 )
             },
@@ -765,7 +765,7 @@ struct HomeView: View {
         settings.destroyMachine = next
         deviceSwitchToken += 1
         sound.play(.deviceSwitch)
-        showLCDNotice("已切换为「\(next.displayName)」")
+        showLCDNotice("已切换为「%@」".localized(next.displayName))
     }
 
     /// 纸篓下移量：满额 `dockDrop`，但短屏 / iPad 上按屏底余量收敛。
@@ -911,16 +911,16 @@ struct HomeView: View {
         switch selection {
         case .all:
             albumID = nil
-            title = "全部照片"
+            title = "全部照片".localized
 
         case .uncategorized:
             // 首次差集还在后台跑：不拿空集合去建任务，避免把「全部照片」当成未归类。
             guard albumService.uncategorizedDisplayCount != nil else {
-                toastMessage = ToastMessage(text: "正在统计未归类照片，请稍后再试", kind: .info)
+                toastMessage = ToastMessage(text: "正在统计未归类照片，请稍后再试".localized, kind: .info)
                 return
             }
             albumID = nil
-            title = "未归类照片"
+            title = "未归类照片".localized
 
         case .album(let album):
             albumID = album.id
@@ -948,7 +948,7 @@ struct HomeView: View {
         )
         guard !items.isEmpty else {
             toastMessage = ToastMessage(
-                text: "这个相簿里没有可整理的照片",
+                text: "这个相簿里没有可整理的照片".localized,
                 kind: .warning
             )
             return
@@ -958,7 +958,7 @@ struct HomeView: View {
             let hadProgress = task.processedCount > 0
             task.reset()
             if hadProgress {
-                toastMessage = ToastMessage(text: "已放弃上一批未执行的决策", kind: .info)
+                toastMessage = ToastMessage(text: "已放弃上一批未执行的决策".localized, kind: .info)
             }
         }
         resetStage()
@@ -994,7 +994,7 @@ struct HomeView: View {
         isAlbumsDrawerPresented = false
         isVaultDrawerPresented = false
         resetStage()
-        toastMessage = ToastMessage(text: "已保留本批进度，下次可继续", kind: .info)
+        toastMessage = ToastMessage(text: "已保留本批进度，下次可继续".localized, kind: .info)
     }
 
     /// 撤销最近一步决策：照片退回舞台、去向与计数一起回退。
@@ -1012,7 +1012,7 @@ struct HomeView: View {
         isZoomed = false
         zoomScale = 1
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        toastMessage = ToastMessage(text: "已撤销上一步", kind: .info)
+        toastMessage = ToastMessage(text: "已撤销上一步".localized, kind: .info)
     }
 
     /// 直接结束本批：未决定的照片一律按“保留”归档，其余队列照常走结算。
@@ -1038,7 +1038,7 @@ struct HomeView: View {
         task.restore(from: restored)
         if !task.isActive {
             toastMessage = ToastMessage(
-                text: "上次整理的照片已不在相册，任务已清空",
+                text: "上次整理的照片已不在相册，任务已清空".localized,
                 kind: .info
             )
         }
@@ -1275,19 +1275,19 @@ struct HomeView: View {
         isZoomed = false
         zoomScale = 1
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        showLCDNotice("已延后 \(days) 天，本批不再出现", tone: .success)
+        showLCDNotice("已延后 %@ 天，本批不再出现".localized(days), tone: .success)
         handleTaskProgress()
     }
 
     private func wakeUpSnoozed(id: String) {
         snooze.unsnooze(id: id)
-        toastMessage = ToastMessage(text: "已恢复，将出现在下一批", kind: .info)
+        toastMessage = ToastMessage(text: "已恢复，将出现在下一批".localized, kind: .info)
     }
 
     private func wakeAllSnoozed() {
         guard snooze.count > 0 else { return }
         snooze.wakeAll()
-        toastMessage = ToastMessage(text: "全部恢复，将出现在下一批", kind: .info)
+        toastMessage = ToastMessage(text: "全部恢复，将出现在下一批".localized, kind: .info)
     }
 
     // MARK: 收藏夹
@@ -1309,7 +1309,7 @@ struct HomeView: View {
         if let first = albums.first {
             settings.setDefaultAlbum(id: first.id, title: first.title)
         } else {
-            settings.setDefaultAlbum(id: nil, title: "未选择")
+            settings.setDefaultAlbum(id: nil, title: "未选择".localized)
         }
     }
 
@@ -1317,7 +1317,7 @@ struct HomeView: View {
     private func favoriteSwipe(_ id: String) {
         guard task.isActive, !isExecutingTaskEnd else { return }
         guard let albumID = settings.defaultAlbumID else {
-            toastMessage = ToastMessage(text: "先在右侧选择一个默认收藏夹", kind: .warning)
+            toastMessage = ToastMessage(text: "先在右侧选择一个默认收藏夹".localized, kind: .warning)
             return
         }
 
@@ -1344,7 +1344,7 @@ struct HomeView: View {
                 // 保证照片只在这一个新的收藏夹里（移动而非追加）。
                 try await albumService.moveAssets([id], toAlbum: albumID)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                showLCDNotice("已移入「\(settings.defaultAlbumTitle)」", tone: .success)
+                showLCDNotice("已移入「%@」".localized(settings.defaultAlbumTitle), tone: .success)
             } catch {
                 toastMessage = ToastMessage(
                     text: error.localizedDescription,
@@ -1381,7 +1381,7 @@ struct HomeView: View {
         ) {
             vaultDoorOpen = true
         }
-        showLCDNotice("已存入保险箱，结算时加密", tone: .success)
+        showLCDNotice("已存入保险箱，结算时加密".localized, tone: .success)
 
         Task {
             try? await Task.sleep(for: .milliseconds(620))
@@ -1440,7 +1440,7 @@ struct HomeView: View {
         currentID = nextID
         isZoomed = false
         zoomScale = 1
-        showLCDNotice("已加入待销毁 · \(task.destroyCount) 张", tone: .danger)
+        showLCDNotice("已加入待销毁 · %@ 张".localized(task.destroyCount), tone: .danger)
         handleTaskProgress()
     }
 
@@ -1463,7 +1463,7 @@ struct HomeView: View {
                 .prefix(batchLimit)
         )
         guard !items.isEmpty else { return }
-        task.start(albumLocalID: nil, albumTitle: "全部照片", items: items, batchSize: batchLimit)
+        task.start(albumLocalID: nil, albumTitle: "全部照片".localized, items: items, batchSize: batchLimit)
         workspace.present()
         currentID = task.remainingItems.first?.id
     }
@@ -1488,7 +1488,7 @@ struct HomeView: View {
                 isHidden: false
             )
         }
-        task.start(albumLocalID: nil, albumTitle: "全部照片", items: items, batchSize: items.count)
+        task.start(albumLocalID: nil, albumTitle: "全部照片".localized, items: items, batchSize: items.count)
         workspace.present()
         currentID = task.remainingItems.first?.id
     }
@@ -1636,7 +1636,7 @@ struct HomeView: View {
             if raw.contains("favorite"), settings.defaultAlbumID == nil {
                 // 模拟器里通常没有用户相簿；给一个占位 ID 让右滑飞出路径可走
                 // （写入相簿会失败并提示，但不影响舞台飞出的视觉验证）。
-                settings.setDefaultAlbum(id: "ui-test-album", title: "测试相簿")
+                settings.setDefaultAlbum(id: "ui-test-album", title: "测试相簿".localized)
             }
             try? await Task.sleep(for: .milliseconds(500))
             for token in raw.split(separator: ",") {
@@ -1647,7 +1647,7 @@ struct HomeView: View {
                     // 占位相簿每次写入都会失败并触发相簿列表刷新，
                     // 默认收藏夹可能被清空；每次右滑前补回来，保证飞行路径连续可测。
                     if settings.defaultAlbumID == nil {
-                        settings.setDefaultAlbum(id: "ui-test-album", title: "测试相簿")
+                        settings.setDefaultAlbum(id: "ui-test-album", title: "测试相簿".localized)
                     }
                     stageFavoriteRequest += 1
                 case "tap":

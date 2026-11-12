@@ -70,8 +70,8 @@ struct VaultDoorColumn: View {
                 }
                 .buttonStyle(.plain)
                 .position(x: geometry.hitCenterX, y: proxy.size.height / 2)
-                .accessibilityLabel("私密保险箱，已存 \(count) 件")
-                .accessibilityHint("点按打开私密保险箱")
+                .accessibilityLabel("私密保险箱，已存 %@ 件".localized(count))
+                .accessibilityHint("点按打开私密保险箱".localized)
                 .accessibilityAddTraits(.isButton)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)

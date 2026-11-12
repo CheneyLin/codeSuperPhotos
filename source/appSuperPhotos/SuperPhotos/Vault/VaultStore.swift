@@ -275,7 +275,7 @@ final class VaultStore {
         var staged = StagedImport()
         guard !localIDs.isEmpty else { return staged }
         guard !isBusy else {
-            staged.messages.append("上一批入库还在进行中")
+            staged.messages.append("上一批入库还在进行中".localized)
             return staged
         }
 
@@ -289,7 +289,7 @@ final class VaultStore {
 
         if Paths.availableCapacity() > 0,
            Paths.availableCapacity() <= VaultLimits.diskSafetyMargin {
-            staged.messages.append("剩余磁盘空间不足，请先清理后再试")
+            staged.messages.append("剩余磁盘空间不足，请先清理后再试".localized)
             return staged
         }
 
@@ -305,7 +305,7 @@ final class VaultStore {
             let kind = kinds[assetID] ?? MediaKind.from(asset: asset)
 
             if records.contains(where: { $0.originLocalID == assetID }) {
-                staged.messages.append("已在保险箱：\(kind.displayName)")
+                staged.messages.append("已在保险箱：%@".localized(kind.displayName))
                 staged.failed += 1
                 continue
             }
@@ -317,7 +317,7 @@ final class VaultStore {
                 usedBytes: totalBytes
             )
             guard mediaGate.isAllowed else {
-                staged.messages.append(mediaGate.message ?? "未通过权益校验")
+                staged.messages.append(mediaGate.message ?? "未通过权益校验".localized)
                 staged.failed += 1
                 continue
             }
@@ -344,7 +344,7 @@ final class VaultStore {
                 if let paired = copied.pairedVideoPath {
                     Paths.removeFile(atRelativePath: paired)
                 }
-                staged.messages.append(quota.message ?? "超出保险箱额度")
+                staged.messages.append(quota.message ?? "超出保险箱额度".localized)
                 staged.failed += 1
                 continue
             }
@@ -366,7 +366,7 @@ final class VaultStore {
                     if let paired = copied.pairedVideoPath {
                         Paths.removeFile(atRelativePath: paired)
                     }
-                    staged.messages.append("强加密失败：\(error.localizedDescription)")
+                    staged.messages.append("强加密失败：%@".localized(error.localizedDescription))
                     staged.failed += 1
                     continue
                 }
@@ -701,9 +701,9 @@ enum VaultAutoLock: Int, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .immediate: "立即"
-        case .thirtySeconds: "30 秒"
-        case .oneMinute: "1 分钟"
+        case .immediate: "立即".localized
+        case .thirtySeconds: "30 秒".localized
+        case .oneMinute: "1 分钟".localized
         }
     }
 

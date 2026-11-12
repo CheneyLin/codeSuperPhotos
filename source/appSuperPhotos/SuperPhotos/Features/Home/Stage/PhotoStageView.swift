@@ -413,17 +413,17 @@ struct PhotoStageView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityHidden(!isFront)
                 .accessibilityLabel(
-                    "第 \(currentIndex + 1) 张，共 \(items.count) 张，\(entry.item.shortDateText)，\(entry.item.kind.displayName)"
+                    "第 %@ 张，共 %@ 张，%@，%@".localized(currentIndex + 1, items.count, entry.item.shortDateText, entry.item.kind.displayName)
                 )
-                .accessibilityHint("轻点全屏查看，上滑延后，下滑加入待销毁，左滑存入保险箱，右滑存入收藏夹")
+                .accessibilityHint("轻点全屏查看，上滑延后，下滑加入待销毁，左滑存入保险箱，右滑存入收藏夹".localized)
                 .accessibilityAddTraits(.isButton)
-                .accessibilityAction(named: "全屏查看") {
+                .accessibilityAction(named: "全屏查看".localized) {
                     openFullscreen()
                 }
-                .accessibilityAction(named: "下一张照片") {
+                .accessibilityAction(named: "下一张照片".localized) {
                     beginAdvance(container: stageContainerSize(for: entrySize))
                 }
-                .accessibilityAction(named: "加入待销毁") {
+                .accessibilityAction(named: "加入待销毁".localized) {
                     guard canDiscard else { return }
                     beginDiscard(container: stageContainerSize(for: entrySize))
                 }
@@ -480,12 +480,12 @@ struct PhotoStageView: View {
                 .font(.system(size: 30, weight: .regular))
                 .foregroundStyle(Theme.Text.tertiary)
 
-            Text("这一批已经处理完")
+            Text("这一批已经处理完".localized)
                 .font(Theme.Typography.headline)
                 .foregroundStyle(Theme.Text.primary)
                 .multilineTextAlignment(.center)
 
-            Text("正在统一加密与删除，请稍候")
+            Text("正在统一加密与删除，请稍候".localized)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.secondary)
                 .multilineTextAlignment(.center)
@@ -648,7 +648,7 @@ struct PhotoStageView: View {
         HStack(spacing: 5) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 11, weight: .semibold))
-            Text("延后 \(days) 天")
+            Text("延后 %@ 天".localized(days))
                 .font(Theme.Typography.caption.weight(.semibold).monospacedDigit())
         }
         .foregroundStyle(Theme.Text.primary)

@@ -19,11 +19,11 @@ struct DesignSystemPreviewView: View {
             .padding(.bottom, Theme.Spacing.xxl)
         }
         .background(Theme.Surface.base.ignoresSafeArea())
-        .navigationTitle("设计系统")
+        .navigationTitle("设计系统".localized)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("完成") { dismiss() }
+                Button("完成".localized) { dismiss() }
             }
         }
     }
@@ -31,7 +31,7 @@ struct DesignSystemPreviewView: View {
     // MARK: - 色板
 
     private var paletteSection: some View {
-        previewSection("色板") {
+        previewSection("色板".localized) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: Theme.Spacing.md)], spacing: Theme.Spacing.md) {
                 swatch("base", color: Theme.Surface.base)
                 swatch("raised", color: Theme.Surface.raised)
@@ -66,13 +66,13 @@ struct DesignSystemPreviewView: View {
     // MARK: - 字体
 
     private var typographySection: some View {
-        previewSection("字号层级") {
+        previewSection("字号层级".localized) {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 labeledLine("Display 34", sample: "1,204 / 20,318", font: Theme.Typography.display)
-                labeledLine("Title 22", sample: "整理进度", font: Theme.Typography.title)
-                labeledLine("Headline 17", sample: "存入保险箱", font: Theme.Typography.headline)
-                labeledLine("Body 15", sample: "把不想被随手翻到的照片拖进保险箱。", font: Theme.Typography.body)
-                labeledLine("Caption 12", sample: "最近删除保留 30 天", font: Theme.Typography.caption)
+                labeledLine("Title 22", sample: "整理进度".localized, font: Theme.Typography.title)
+                labeledLine("Headline 17", sample: "存入保险箱".localized, font: Theme.Typography.headline)
+                labeledLine("Body 15", sample: "把不想被随手翻到的照片拖进保险箱。".localized, font: Theme.Typography.body)
+                labeledLine("Caption 12", sample: "最近删除保留 30 天".localized, font: Theme.Typography.caption)
                 labeledLine("Dial", sample: "07 · 24", font: Theme.Typography.dialNumber)
             }
         }
@@ -92,14 +92,14 @@ struct DesignSystemPreviewView: View {
     // MARK: - 表面
 
     private var surfaceSection: some View {
-        previewSection("表面") {
+        previewSection("表面".localized) {
             VStack(spacing: Theme.Spacing.lg) {
                 HStack(spacing: Theme.Spacing.lg) {
                     surfaceTile("Raised", style: .raised, radius: Theme.Radius.card)
                     surfaceTile("Small", style: .raisedSmall, radius: Theme.Radius.chip)
                 }
                 surfaceTile("Inset", style: .inset, radius: Theme.Radius.card)
-                Text("规则：凸起 = 外阴影对 + 左上高光描边；凹陷 = 内阴影对 + 1pt 内描边。")
+                Text("规则：凸起 = 外阴影对 + 左上高光描边；凹陷 = 内阴影对 + 1pt 内描边。".localized)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.secondary)
             }
@@ -118,19 +118,19 @@ struct DesignSystemPreviewView: View {
     // MARK: - 按钮
 
     private var buttonSection: some View {
-        previewSection("按钮") {
+        previewSection("按钮".localized) {
             VStack(spacing: Theme.Spacing.lg) {
-                Button("开始整理") {}
+                Button("开始整理".localized) {}
                     .buttonStyle(.neuPill)
 
                 Button {
                 } label: {
-                    Label("存入保险箱", systemImage: "lock.fill")
+                    Label("存入保险箱".localized, systemImage: "lock.fill")
                 }
                 .buttonStyle(.neuPill)
 
                 HStack(spacing: Theme.Spacing.lg) {
-                    Button("取消") {}
+                    Button("取消".localized) {}
                         .buttonStyle(.neuInset)
 
                     Button {
@@ -147,14 +147,14 @@ struct DesignSystemPreviewView: View {
     // MARK: - 动效
 
     private var motionSection: some View {
-        previewSection("动效") {
+        previewSection("动效".localized) {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 HStack {
                     Text("Spring 0.34 / 0.82")
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.secondary)
                     Spacer()
-                    Button(isMotionSampleShifted ? "复位" : "触发") {
+                    Button(isMotionSampleShifted ? "复位".localized : "触发".localized) {
                         withAnimation(Theme.Motion.animation(.spring, reduceMotion: reduceMotion)) {
                             isMotionSampleShifted.toggle()
                         }
@@ -172,7 +172,7 @@ struct DesignSystemPreviewView: View {
                 .frame(height: 80)
                 .neuSurface(.inset, cornerRadius: Theme.Radius.card)
 
-                Text("开启系统“降低动效”后，超过 400ms 的动画自动降级为 200ms 淡出。")
+                Text("开启系统“降低动效”后，超过 400ms 的动画自动降级为 200ms 淡出。".localized)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.secondary)
             }

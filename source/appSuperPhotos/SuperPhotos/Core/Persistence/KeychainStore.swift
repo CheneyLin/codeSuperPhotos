@@ -10,7 +10,7 @@ enum KeychainStore {
         var errorDescription: String? {
             switch self {
             case .status(let code):
-                return "Keychain 操作失败（\(code)）"
+                return "Keychain 操作失败（%@）".localized(code)
             }
         }
     }

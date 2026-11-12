@@ -63,10 +63,10 @@ struct DestroyDock: View {
         .contentShape(Rectangle())
         .onTapGesture { onSwitch() }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(machine.displayName)，本批待删除 \(pendingCount) 张")
-        .accessibilityHint("轻点切换到下一个销毁道具；下滑照片可\(machine.dropVerb)，任务结束时统一删除")
+        .accessibilityLabel("%@，本批待删除 %@ 张".localized(machine.displayName, pendingCount))
+        .accessibilityHint("轻点切换到下一个销毁道具；下滑照片可%@，任务结束时统一删除".localized(machine.dropVerb))
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: "切换道具") { onSwitch() }
+        .accessibilityAction(named: "切换道具".localized) { onSwitch() }
         .onChange(of: switchToken) { _, newValue in
             guard newValue > 0 else { return }
             isNameVisible = true

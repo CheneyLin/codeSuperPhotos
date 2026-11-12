@@ -31,7 +31,7 @@ struct SnoozeListView: View {
                 Button {
                     onWakeAll()
                 } label: {
-                    Text("全部恢复（\(records.count) 张）")
+                    Text("全部恢复（%@ 张）".localized(records.count))
                 }
                 .buttonStyle(NeuButtonStyle(variant: .raisedSmall, cornerRadius: Theme.Radius.chip))
             }
@@ -45,10 +45,10 @@ struct SnoozeListView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("延后中")
+                Text("延后中".localized)
                     .font(Theme.Typography.headline)
                     .foregroundStyle(Theme.Text.primary)
-                Text("到期前不会出现在舞台，随时可以恢复")
+                Text("到期前不会出现在舞台，随时可以恢复".localized)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.secondary)
             }
@@ -62,7 +62,7 @@ struct SnoozeListView: View {
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("关闭")
+            .accessibilityLabel("关闭".localized)
         }
     }
 
@@ -71,10 +71,10 @@ struct SnoozeListView: View {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 26))
                 .foregroundStyle(Theme.Text.tertiary)
-            Text("没有延后中的照片")
+            Text("没有延后中的照片".localized)
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Text.secondary)
-            Text("舞台上滑即可延后 1–30 天")
+            Text("舞台上滑即可延后 1–30 天".localized)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
         }
@@ -91,7 +91,7 @@ struct SnoozeListView: View {
                     .foregroundStyle(Theme.Text.primary)
                     .lineLimit(1)
 
-                Text("还有 \(remainingDays(record)) 天")
+                Text("还有 %@ 天".localized(remainingDays(record)))
                     .font(Theme.Typography.caption.monospacedDigit())
                     .foregroundStyle(Theme.Text.secondary)
             }
@@ -101,7 +101,7 @@ struct SnoozeListView: View {
             Button {
                 onWake(record.id)
             } label: {
-                Text("恢复")
+                Text("恢复".localized)
                     .font(Theme.Typography.caption.weight(.semibold))
                     .foregroundStyle(Theme.Accent.brass)
                     .padding(.horizontal, Theme.Spacing.md)
@@ -109,7 +109,7 @@ struct SnoozeListView: View {
                     .neuSurface(.raisedSmall, cornerRadius: Theme.Radius.chip)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("恢复这张照片")
+            .accessibilityLabel("恢复这张照片".localized)
         }
         .padding(Theme.Spacing.sm)
         .background(Theme.Surface.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -120,13 +120,25 @@ struct SnoozeListView: View {
     }
 
     private func untilText(_ date: Date) -> String {
-        Self.formatter.string(from: date)
+        // 日期、时刻分别按当前语言格式化，句尾文案另行本地化。
+        "%@ %@ %@".localized(
+            Self.dateFormatter.string(from: date),
+            Self.timeFormatter.string(from: date),
+            "回到舞台".localized
+        )
     }
 
-    private static let formatter: DateFormatter = {
+    private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans_CN")
-        formatter.dateFormat = "M月d日 HH:mm 回到舞台"
+        formatter.locale = .current
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = "HH:mm"
         return formatter
     }()
 }

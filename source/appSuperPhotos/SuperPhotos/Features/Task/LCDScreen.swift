@@ -57,7 +57,7 @@ enum LCDSpec {
     static let hintSize: CGFloat = 7
     static let hintTracking: CGFloat = 0.1
     /// 处理态没有瞬时反馈时的常驻提示。
-    static let hintText = "轻点暂停 · 下滑待销毁"
+    static let hintText = "轻点暂停 · 下滑待销毁".localized
 
     /// 分段式进度条：格数、格间距、格高（同样按屏体缩放）。
     static let segmentCount: Int = 16
@@ -125,7 +125,7 @@ struct LCDScreen: View {
     var onPause: () -> Void = {}
 
     /// 桌面态手势提示：不画在屏上，只留给 VoiceOver。
-    static let tipsText = "轻点全屏 · 上滑延后 · 左滑保险箱 · 右滑收藏夹 · 下滑删除"
+    static let tipsText = "轻点全屏 · 上滑延后 · 左滑保险箱 · 右滑收藏夹 · 下滑删除".localized
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -136,8 +136,8 @@ struct LCDScreen: View {
                     panel
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("暂停整理")
-                .accessibilityHint("保留当前进度并返回桌面")
+                .accessibilityLabel("暂停整理".localized)
+                .accessibilityHint("保留当前进度并返回桌面".localized)
                 .accessibilityValue(accessibilitySummary)
             } else {
                 panel
@@ -222,7 +222,7 @@ struct LCDScreen: View {
         case let .progress(pendingDelete, processed, total):
             VStack(alignment: .leading, spacing: LCDSpec.lineSpacing * scale) {
                 HStack(spacing: 4 * scale) {
-                    Text("待删除 \(pendingDelete) 张")
+                    Text("待删除 %@ 张".localized(pendingDelete))
                         .foregroundStyle(pendingDelete > 0 ? LCDSpec.dangerColor : LCDSpec.dimColor)
 
                     Spacer(minLength: 2 * scale)
@@ -297,7 +297,7 @@ struct LCDScreen: View {
         case .idle:
             base = Self.tipsText
         case let .progress(pendingDelete, processed, total):
-            base = "待删除 \(pendingDelete) 张，已处理 \(processed) 张，共 \(total) 张"
+            base = "待删除 %@ 张，已处理 %@ 张，共 %@ 张".localized(pendingDelete, processed, total)
         }
         guard let notice else { return base }
         return "\(base)。\(notice.text)"

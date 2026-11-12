@@ -16,11 +16,11 @@ struct AlbumsPanel: View {
                     allPhotosRow
 
                     if !albums.smartAlbums.isEmpty {
-                        section("智能相簿", items: albums.smartAlbums)
+                        section("智能相簿".localized, items: albums.smartAlbums)
                     }
 
                     if !albums.userAlbums.isEmpty {
-                        section("我的相簿", items: albums.userAlbums)
+                        section("我的相簿".localized, items: albums.userAlbums)
                     }
 
                     if albums.isLoading && albums.smartAlbums.isEmpty && albums.userAlbums.isEmpty {
@@ -39,7 +39,7 @@ struct AlbumsPanel: View {
 
     private var header: some View {
         HStack {
-            Text("相簿")
+            Text("相簿".localized)
                 .font(Theme.Typography.title)
                 .foregroundStyle(Theme.Text.primary)
 
@@ -52,7 +52,7 @@ struct AlbumsPanel: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(NeuIconButtonStyle(diameter: 36))
-                .accessibilityLabel("关闭相簿")
+                .accessibilityLabel("关闭相簿".localized)
             }
         }
         .padding(.horizontal, Theme.Spacing.lg)
@@ -62,7 +62,7 @@ struct AlbumsPanel: View {
 
     private var allPhotosRow: some View {
         row(
-            AlbumItem(id: "all", title: "全部照片", kind: .all, count: albums.allPhotoCount, symbolName: "photo.on.rectangle"),
+            AlbumItem(id: "all", title: "全部照片".localized, kind: .all, count: albums.allPhotoCount, symbolName: "photo.on.rectangle"),
             isSelected: selectedAlbumID == nil
         )
     }

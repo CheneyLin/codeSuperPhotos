@@ -87,18 +87,18 @@ struct SettingsView: View {
                 debugSection
                 #endif
             }
-            .navigationTitle("设置")
+            .navigationTitle("设置".localized)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
+                    Button("完成".localized) { dismiss() }
                 }
             }
             .navigationDestination(for: SettingsRoute.self) { route in
                 destination(for: route)
             }
-            .alert("门禁结果", isPresented: $isProbeAlertPresented) {
-                Button("好", role: .cancel) {}
+            .alert("门禁结果".localized, isPresented: $isProbeAlertPresented) {
+                Button("好".localized, role: .cancel) {}
             } message: {
                 Text(probeMessage)
             }
@@ -139,7 +139,7 @@ struct SettingsView: View {
                 }
             )
         ) {
-            Button("好", role: .cancel) { entitlements.clearNotice() }
+            Button("好".localized, role: .cancel) { entitlements.clearNotice() }
         } message: {
             Text(entitlements.notice ?? "")
         }
@@ -268,9 +268,9 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var appearanceRows: some View {
-        moduleRow(icon: "icon_config_ui", title: "外观和交互")
+        moduleRow(icon: "icon_config_ui", title: "外观和交互".localized)
 
-        Picker("显示模式", selection: displayModeBinding) {
+        Picker("显示模式".localized, selection: displayModeBinding) {
             ForEach(DisplayMode.allCases) { mode in
                 Text(mode.title).tag(mode)
             }
@@ -278,13 +278,13 @@ struct SettingsView: View {
         .pickerStyle(.segmented)
         .settingsRowIndent()
 
-        Toggle("高对比度", isOn: highContrastBinding)
+        Toggle("高对比度".localized, isOn: highContrastBinding)
             .settingsRowIndent()
 
-        Toggle("降低动效", isOn: reduceMotionBinding)
+        Toggle("降低动效".localized, isOn: reduceMotionBinding)
             .settingsRowIndent()
 
-        Toggle("音效", isOn: soundBinding)
+        Toggle("音效".localized, isOn: soundBinding)
             .settingsRowIndent()
     }
 
@@ -309,7 +309,7 @@ struct SettingsView: View {
     /// 底部道具的直选入口，与首页「轻点循环切换」共用 AppSettings.destroyMachine。
     @ViewBuilder
     private var deviceRows: some View {
-        moduleRow(icon: "icon_config_destory", title: "销毁道具")
+        moduleRow(icon: "icon_config_destory", title: "销毁道具".localized)
 
         DevicePickerStrip(selection: settings.destroyMachine) { machine in
             settings.destroyMachine = machine
@@ -325,10 +325,10 @@ struct SettingsView: View {
             configIcon("icon_config_batch")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("整理批次")
+                Text("整理批次".localized)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Text.primary)
-                Text("每批 \(batchSize) 张")
+                Text("每批 %@ 张".localized(batchSize))
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
             }
@@ -336,16 +336,16 @@ struct SettingsView: View {
             Spacer(minLength: Theme.Spacing.sm)
 
             Stepper(
-                "每批张数",
+                "每批张数".localized,
                 value: $batchSize,
                 in: TaskPolicy.batchSizeRange,
                 step: TaskPolicy.batchSizeStep
             )
             .labelsHidden()
             .fixedSize()
-            .accessibilityLabel("每批张数")
-            .accessibilityValue("每批 \(batchSize) 张")
-            .accessibilityHint("范围 10 到 200 张，每次增加或减少 10 张")
+            .accessibilityLabel("每批张数".localized)
+            .accessibilityValue("每批 %@ 张".localized(batchSize))
+            .accessibilityHint("范围 10 到 200 张，每次增加或减少 10 张".localized)
         }
         .padding(.vertical, 2)
     }
@@ -364,7 +364,7 @@ struct SettingsView: View {
                 configIcon("icon_config_data")
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("统计")
+                    Text("统计".localized)
                         .font(Theme.Typography.body)
                         .foregroundStyle(Theme.Text.primary)
                     Text(statisticsSubtitle)
@@ -384,15 +384,15 @@ struct SettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("统计")
+        .accessibilityLabel("统计".localized)
         .accessibilityValue(statisticsSubtitle)
-        .accessibilityHint("查看完整的整理统计")
+        .accessibilityHint("查看完整的整理统计".localized)
     }
 
     private var statisticsSubtitle: String {
         todaySummary.destroyed > 0
-            ? "今日 \(todaySummary.destroyed) 件"
-            : "今日暂无销毁记录"
+            ? "今日 %@ 件".localized(todaySummary.destroyed)
+            : "今日暂无销毁记录".localized
     }
 
     // MARK: - 延后
@@ -407,10 +407,10 @@ struct SettingsView: View {
                 configIcon("icon_config_later")
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("延后")
+                    Text("延后".localized)
                         .font(Theme.Typography.body)
                         .foregroundStyle(Theme.Text.primary)
-                    Text("\(snooze.count) 项待处理")
+                    Text("%@ 项待处理".localized(snooze.count))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.tertiary)
                 }
@@ -425,16 +425,16 @@ struct SettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("延后")
-        .accessibilityValue("\(snooze.count) 项")
-        .accessibilityHint("查看延后中的照片，可单张恢复或全部恢复")
+        .accessibilityLabel("延后".localized)
+        .accessibilityValue("%@ 项".localized(snooze.count))
+        .accessibilityHint("查看延后中的照片，可单张恢复或全部恢复".localized)
     }
 
     // MARK: - 私密保险箱
 
     private var vaultSection: some View {
         Section {
-            moduleRow(icon: "icon_config_vault", title: "私密保险箱")
+            moduleRow(icon: "icon_config_vault", title: "私密保险箱".localized)
 
             // iCloud 同步是模块级开关，放在模块首行：设置页很长，压在底部容易被忽略。
             syncToggleRow
@@ -448,26 +448,26 @@ struct SettingsView: View {
                 NavigationLink {
                     VaultPasswordChangeView()
                 } label: {
-                    Text("修改密码")
+                    Text("修改密码".localized)
                         .settingsRowIndent()
                 }
             } else {
                 Button {
                     isVaultSetupPresented = true
                 } label: {
-                    Text("设置保险箱密码")
+                    Text("设置保险箱密码".localized)
                         .settingsRowIndent()
                 }
             }
 
-            Picker("自动锁定", selection: $autoLockSeconds) {
+            Picker("自动锁定".localized, selection: $autoLockSeconds) {
                 ForEach(VaultAutoLock.allCases) { option in
                     Text(option.title).tag(option.rawValue)
                 }
             }
             .settingsRowIndent()
 
-            Picker("内容保护", selection: $encryptionModeRaw) {
+            Picker("内容保护".localized, selection: $encryptionModeRaw) {
                 ForEach(VaultEncryptionMode.allCases) { mode in
                     Text(mode.title).tag(mode.rawValue)
                 }
@@ -477,7 +477,7 @@ struct SettingsView: View {
             Button(role: .destructive) {
                 isVaultResetPresented = true
             } label: {
-                Text("重置保险箱")
+                Text("重置保险箱".localized)
                     .settingsRowIndent()
             }
             .disabled(!isConfigured)
@@ -491,7 +491,7 @@ struct SettingsView: View {
         HStack(spacing: Theme.Spacing.md) {
             Toggle(isOn: syncEnabledBinding) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("iCloud 同步")
+                    Text("iCloud 同步".localized)
                     Text(syncSubtitle)
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.tertiary)
@@ -501,12 +501,12 @@ struct SettingsView: View {
             .disabled(!entitlements.isVIP)
 
             if !entitlements.isVIP {
-                Button("开通 VIP") { triggerPurchase() }
+                Button("开通 VIP".localized) { triggerPurchase() }
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.accentColor)
                     .buttonStyle(.plain)
                     .disabled(entitlements.isPurchasing || entitlements.isRestoring)
-                    .accessibilityHint("购买 VIP 后即可开启 iCloud 同步")
+                    .accessibilityHint("购买 VIP 后即可开启 iCloud 同步".localized)
             }
         }
         .settingsRowIndent()
@@ -522,7 +522,7 @@ struct SettingsView: View {
             if vaultSync.isSyncing {
                 ProgressView()
             } else {
-                Button("立即同步") { vaultSync.syncNow() }
+                Button("立即同步".localized) { vaultSync.syncNow() }
                     .font(Theme.Typography.caption)
                     .disabled(!vaultSync.canSyncNow)
             }
@@ -539,10 +539,10 @@ struct SettingsView: View {
     }
 
     private var syncSubtitle: String {
-        if !entitlements.isVIP { return "VIP 专属 · 升级后可开启" }
+        if !entitlements.isVIP { return "VIP 专属 · 升级后可开启".localized }
         return syncEnabled
-            ? "标准档内容跨设备可用"
-            : "开启后，标准档内容同步到你的 iCloud 私有数据库"
+            ? "标准档内容跨设备可用".localized
+            : "开启后，标准档内容同步到你的 iCloud 私有数据库".localized
     }
 
     /// VIP 第一行与保险箱「开通 VIP」入口共用：商品未就绪时只重试拉取，
@@ -570,7 +570,7 @@ struct SettingsView: View {
                     configIcon("icon_config_vip")
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entitlements.isVIP ? "欢迎尊贵的VIP大人" : "VIP")
+                        Text(entitlements.isVIP ? "欢迎尊贵的VIP大人".localized : "VIP")
                             .font(Theme.Typography.body)
                             .foregroundStyle(Theme.Text.primary)
                             .lineLimit(1)
@@ -617,7 +617,7 @@ struct SettingsView: View {
                 HStack(spacing: Theme.Spacing.md) {
                     iconSpacer
 
-                    Text(entitlements.isRestoring ? "正在恢复…" : "恢复购买")
+                    Text(entitlements.isRestoring ? "正在恢复…".localized : "恢复购买".localized)
                         .font(Theme.Typography.body)
                         .foregroundStyle(Theme.Text.primary)
 
@@ -636,8 +636,8 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .disabled(entitlements.isPurchasing || entitlements.isRestoring)
-            .accessibilityLabel("恢复购买")
-            .accessibilityHint("找回此前已购买的 VIP，不会重复扣费")
+            .accessibilityLabel("恢复购买".localized)
+            .accessibilityHint("找回此前已购买的 VIP，不会重复扣费".localized)
         }
     }
 
@@ -648,32 +648,32 @@ struct SettingsView: View {
         if entitlements.isVIP {
             guard let days = entitlements.vipDays else {
                 // 收据日期暂时取不到时的兜底，避免出现空白第二行。
-                return "已永久解锁全部权益"
+                return "已永久解锁全部权益".localized
             }
-            return "从成为VIP那天到现在已经\(days)天啦！"
+            return "从成为VIP那天到现在已经%@天啦！".localized(days)
         }
         if let description = entitlements.product?.description,
            !description.isEmpty {
             return description
         }
-        return "一次性购买 · 永久解锁，无需续订"
+        return "一次性购买 · 永久解锁，无需续订".localized
     }
 
     /// 价格整合进购买按钮；商品未就绪时按钮只用于重新拉取，不发起扣费。
     private var purchaseLabel: String {
-        guard let product = entitlements.product else { return "重新获取" }
-        return "购买 \(product.displayPrice)"
+        guard let product = entitlements.product else { return "重新获取".localized }
+        return "购买 %@".localized(product.displayPrice)
     }
 
     private var vipAccessibilityLabel: String {
         if entitlements.isVIP {
             if let days = entitlements.vipDays {
-                return "欢迎尊贵的VIP大人，已解锁 \(days) 天"
+                return "欢迎尊贵的VIP大人，已解锁 %@ 天".localized(days)
             }
-            return "欢迎尊贵的VIP大人，权益已解锁"
+            return "欢迎尊贵的VIP大人，权益已解锁".localized
         }
-        guard let price = entitlements.product?.displayPrice else { return "购买 VIP" }
-        return "购买 VIP，\(price)"
+        guard let price = entitlements.product?.displayPrice else { return "购买 VIP".localized }
+        return "购买 VIP，%@".localized(price)
     }
 
     // MARK: - 我们的应用 / 关于
@@ -681,7 +681,7 @@ struct SettingsView: View {
     /// 合并为一组：应用列表用图标行标识，关于把图标与版本号直接放在入口行里。
     private var moreSection: some View {
         Section {
-            moduleRow(icon: "icon_config_apps", title: "我们的应用")
+            moduleRow(icon: "icon_config_apps", title: "我们的应用".localized)
 
             OurAppsRows()
 
@@ -689,7 +689,7 @@ struct SettingsView: View {
                 HStack(spacing: Theme.Spacing.md) {
                     configIcon("icon_config_about")
 
-                    Text("关于")
+                    Text("关于".localized)
                         .font(Theme.Typography.body)
                         .foregroundStyle(Theme.Text.primary)
 
@@ -707,16 +707,16 @@ struct SettingsView: View {
     #if DEBUG
     private var debugSection: some View {
         Section {
-            Text("开发工具")
+            Text("开发工具".localized)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
 
             NavigationLink(value: SettingsRoute.designSystem) {
-                Text("设计系统预览")
+                Text("设计系统预览".localized)
                     .settingsRowIndent()
             }
 
-            Toggle("模拟销毁（不真删）", isOn: Binding(
+            Toggle("模拟销毁（不真删）".localized, isOn: Binding(
                 get: { DebugOptions.readSimulatingDestroy() },
                 set: { DebugOptions.setSimulatingDestroy($0) }
             ))
@@ -728,14 +728,14 @@ struct SettingsView: View {
                     isEntitlementDiagnosisPresented = true
                 }
             } label: {
-                Text("权益诊断（StoreKit 交易）")
+                Text("权益诊断（StoreKit 交易）".localized)
                     .settingsRowIndent()
             }
 
             gateProbeRows
         }
-        .alert("权益诊断", isPresented: $isEntitlementDiagnosisPresented) {
-            Button("好", role: .cancel) {}
+        .alert("权益诊断".localized, isPresented: $isEntitlementDiagnosisPresented) {
+            Button("好".localized, role: .cancel) {}
         } message: {
             Text(entitlementDiagnosis)
         }
@@ -748,7 +748,7 @@ struct SettingsView: View {
                 showProbe(for: kind)
             } label: {
                 HStack {
-                    Text("入库：\(kind.displayName)")
+                    Text("入库：%@".localized(kind.displayName))
                     Spacer()
                     statusIcon(
                         entitlements.canImport(
@@ -764,10 +764,10 @@ struct SettingsView: View {
             }
         }
 
-        probeRow(title: "容量：59 件 / 1.9GB", result: entitlements.quotaStatus(usedItems: 59, usedBytes: Int64(1.9 * Double(gigabyte))))
-        probeRow(title: "容量：60 件 / 2.0GB", result: entitlements.quotaStatus(usedItems: 60, usedBytes: 2 * gigabyte))
-        probeRow(title: "容量：61 件", result: entitlements.quotaStatus(usedItems: 61, usedBytes: 2 * gigabyte))
-        probeRow(title: "容量：2.1GB", result: entitlements.quotaStatus(usedItems: 60, usedBytes: Int64(2.1 * Double(gigabyte))))
+        probeRow(title: "容量：59 件 / 1.9GB".localized, result: entitlements.quotaStatus(usedItems: 59, usedBytes: Int64(1.9 * Double(gigabyte))))
+        probeRow(title: "容量：60 件 / 2.0GB".localized, result: entitlements.quotaStatus(usedItems: 60, usedBytes: 2 * gigabyte))
+        probeRow(title: "容量：61 件".localized, result: entitlements.quotaStatus(usedItems: 61, usedBytes: 2 * gigabyte))
+        probeRow(title: "容量：2.1GB".localized, result: entitlements.quotaStatus(usedItems: 60, usedBytes: Int64(2.1 * Double(gigabyte))))
     }
 
     private func probeRow(title: String, result: GateResult) -> some View {
@@ -785,15 +785,15 @@ struct SettingsView: View {
         case .allowed:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(Color.green)
-                .accessibilityLabel("允许")
+                .accessibilityLabel("允许".localized)
         case .requiresVIP:
             Image(systemName: "lock.fill")
                 .foregroundStyle(Color.orange)
-                .accessibilityLabel("需要 VIP")
+                .accessibilityLabel("需要 VIP".localized)
         case .quotaExceeded:
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Color.red)
-                .accessibilityLabel("超出额度")
+                .accessibilityLabel("超出额度".localized)
         }
     }
 
@@ -805,8 +805,8 @@ struct SettingsView: View {
             usedBytes: 512 * 1024 * 1024
         )
         probeMessage = result.isAllowed
-            ? "允许入库：\(kind.displayName)"
-            : (result.message ?? "未通过门禁")
+            ? "允许入库：%@".localized(kind.displayName)
+            : (result.message ?? "未通过门禁".localized)
         isProbeAlertPresented = true
     }
     #endif

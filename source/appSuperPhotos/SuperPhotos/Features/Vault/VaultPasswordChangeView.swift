@@ -36,7 +36,7 @@ struct VaultPasswordChangeView: View {
             }
         }
         .background(Theme.Surface.base.ignoresSafeArea())
-        .navigationTitle("修改密码")
+        .navigationTitle("修改密码".localized)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             lockedSeconds = VaultLockPolicy.remainingSeconds()
@@ -73,7 +73,7 @@ struct VaultPasswordChangeView: View {
 
         return HStack(alignment: .top, spacing: -overlap) {
             DialView(
-                label: "左盘 A · 0–\(VaultCredentials.leftMaxDialValue)",
+                label: "左盘 A · 0–%@".localized(VaultCredentials.leftMaxDialValue),
                 count: VaultCredentials.leftDialCount,
                 value: $left,
                 isEnabled: step != .done && lockedSeconds == 0,
@@ -83,7 +83,7 @@ struct VaultPasswordChangeView: View {
             }
 
             DialView(
-                label: "右盘 B · 0–\(VaultCredentials.rightMaxDialValue)",
+                label: "右盘 B · 0–%@".localized(VaultCredentials.rightMaxDialValue),
                 count: VaultCredentials.rightDialCount,
                 value: $right,
                 isEnabled: step != .done && lockedSeconds == 0,
@@ -99,7 +99,7 @@ struct VaultPasswordChangeView: View {
     @ViewBuilder
     private var status: some View {
         if step == .done {
-            Text("新密码为：左盘 \(newCombo?.a ?? 0) / 右盘 \(newCombo?.b ?? 0)。请立即记下。")
+            Text("新密码为：左盘 %@ / 右盘 %@。请立即记下。".localized(newCombo?.a ?? 0, newCombo?.b ?? 0))
                 .font(Theme.Typography.headline.monospacedDigit())
                 .foregroundStyle(Theme.Text.primary)
                 .multilineTextAlignment(.center)
@@ -107,7 +107,7 @@ struct VaultPasswordChangeView: View {
                 .frame(maxWidth: .infinity)
                 .neuSurface(.inset, cornerRadius: Theme.Radius.card)
         } else if lockedSeconds > 0 {
-            Text("已锁定，请在 \(lockedText) 后重试")
+            Text("已锁定，请在 %@ 后重试".localized(lockedText))
                 .font(Theme.Typography.headline.monospacedDigit())
                 .foregroundStyle(Theme.State.danger)
         } else if let errorText {
@@ -116,7 +116,7 @@ struct VaultPasswordChangeView: View {
                 .foregroundStyle(Theme.State.danger)
                 .multilineTextAlignment(.center)
         } else {
-            Text("组合空间 30 × 60 = 1800 种。忘记后无法找回。")
+            Text("组合空间 30 × 60 = 1800 种。忘记后无法找回。".localized)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Theme.Text.tertiary)
                 .multilineTextAlignment(.center)
@@ -130,7 +130,7 @@ struct VaultPasswordChangeView: View {
             Button {
                 verifyOld()
             } label: {
-                Label("验证旧密码", systemImage: "lock.open")
+                Label("验证旧密码".localized, systemImage: "lock.open")
             }
             .buttonStyle(NeuPillButtonStyle())
             .disabled(lockedSeconds > 0)
@@ -143,13 +143,13 @@ struct VaultPasswordChangeView: View {
                 right = 0
                 errorText = nil
             } label: {
-                Label("下一步", systemImage: "arrow.right")
+                Label("下一步".localized, systemImage: "arrow.right")
             }
             .buttonStyle(NeuPillButtonStyle())
 
         case .confirmNew:
             HStack(spacing: Theme.Spacing.md) {
-                Button("重来") {
+                Button("重来".localized) {
                     step = .newCombo
                     newCombo = nil
                     left = 0
@@ -161,13 +161,13 @@ struct VaultPasswordChangeView: View {
                 Button {
                     confirmNew()
                 } label: {
-                    Label("保存新密码", systemImage: "checkmark")
+                    Label("保存新密码".localized, systemImage: "checkmark")
                 }
                 .buttonStyle(NeuPillButtonStyle())
             }
 
         case .done:
-            Button("完成") { dismiss() }
+            Button("完成".localized) { dismiss() }
                 .buttonStyle(NeuPillButtonStyle())
         }
     }
@@ -176,18 +176,18 @@ struct VaultPasswordChangeView: View {
 
     private var titleText: String {
         switch step {
-        case .verifyOld: "验证旧密码"
-        case .newCombo, .confirmNew: "设置新密码"
-        case .done: "密码已更新"
+        case .verifyOld: "验证旧密码".localized
+        case .newCombo, .confirmNew: "设置新密码".localized
+        case .done: "密码已更新".localized
         }
     }
 
     private var subtitleText: String {
         switch step {
-        case .verifyOld: "先输入当前两个密码盘的位置"
-        case .newCombo: "选择新的组合"
-        case .confirmNew: "再输入一次新组合"
-        case .done: "旧组合已失效"
+        case .verifyOld: "先输入当前两个密码盘的位置".localized
+        case .newCombo: "选择新的组合".localized
+        case .confirmNew: "再输入一次新组合".localized
+        case .done: "旧组合已失效".localized
         }
     }
 
@@ -205,7 +205,7 @@ struct VaultPasswordChangeView: View {
             right = 0
             errorText = nil
         case .wrong(let remaining):
-            errorText = "密码不对，还剩 \(remaining) 次"
+            errorText = "密码不对，还剩 %@ 次".localized(remaining)
             left = 0
             right = 0
         case .locked(let seconds):
@@ -222,7 +222,7 @@ struct VaultPasswordChangeView: View {
             return
         }
         guard newCombo.a == left, newCombo.b == right else {
-            errorText = "两次组合不一致，请重新设置"
+            errorText = "两次组合不一致，请重新设置".localized
             step = .newCombo
             self.newCombo = nil
             left = 0
@@ -230,7 +230,7 @@ struct VaultPasswordChangeView: View {
             return
         }
         guard vault.verifyOnly(a: newCombo.a, b: newCombo.b) == false else {
-            errorText = "新组合不能与旧密码相同"
+            errorText = "新组合不能与旧密码相同".localized
             step = .newCombo
             self.newCombo = nil
             left = 0

@@ -125,10 +125,10 @@ enum StatPeriod: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .today: "今日"
-        case .week: "本周"
-        case .month: "本月"
-        case .all: "累计"
+        case .today: "今日".localized
+        case .week: "本周".localized
+        case .month: "本月".localized
+        case .all: "累计".localized
         }
     }
 

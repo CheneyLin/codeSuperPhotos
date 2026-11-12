@@ -33,26 +33,26 @@ struct TaskSettlementView: View {
                         .font(.system(size: 46, weight: .regular))
                         .foregroundStyle(Theme.Accent.brass)
 
-                    Text("本次整理完成")
+                    Text("本次整理完成".localized)
                         .font(Theme.Typography.title)
                         .foregroundStyle(Theme.Text.primary)
 
-                    Text("「\(settlement.albumTitle)」· 共 \(settlement.total) 张")
+                    Text("「%@」· 共 %@ 张".localized(settlement.albumTitle, settlement.total))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.secondary)
                 }
 
                 VStack(spacing: Theme.Spacing.sm) {
-                    statRow(title: "加密", value: settlement.encrypted, tint: Theme.Accent.brass)
-                    statRow(title: "删除", value: settlement.deleted, tint: Theme.State.danger)
-                    statRow(title: "保留", value: settlement.kept, tint: Theme.Text.primary)
-                    statRow(title: "延后", value: settlement.snoozed, tint: Theme.Text.secondary)
+                    statRow(title: "加密".localized, value: settlement.encrypted, tint: Theme.Accent.brass)
+                    statRow(title: "删除".localized, value: settlement.deleted, tint: Theme.State.danger)
+                    statRow(title: "保留".localized, value: settlement.kept, tint: Theme.Text.primary)
+                    statRow(title: "延后".localized, value: settlement.snoozed, tint: Theme.Text.secondary)
                 }
                 .padding(Theme.Spacing.md)
                 .neuSurface(.inset, cornerRadius: Theme.Radius.card)
 
                 if settlement.cancelled > 0 {
-                    Text("有 \(settlement.cancelled) 张在系统确认框中被取消：原图保留在相册，未写入重复副本。")
+                    Text("有 %@ 张在系统确认框中被取消：原图保留在相册，未写入重复副本。".localized(settlement.cancelled))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.secondary)
                         .multilineTextAlignment(.center)
@@ -60,7 +60,7 @@ struct TaskSettlementView: View {
                 }
 
                 if settlement.failed > 0 {
-                    Text("有 \(settlement.failed) 张未能加密或删除，原图保留在相册，可在下一批重试。")
+                    Text("有 %@ 张未能加密或删除，原图保留在相册，可在下一批重试。".localized(settlement.failed))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.secondary)
                         .multilineTextAlignment(.center)
@@ -71,7 +71,7 @@ struct TaskSettlementView: View {
                     Button {
                         onNext()
                     } label: {
-                        Text("再整理一批")
+                        Text("再整理一批".localized)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                     }
@@ -82,7 +82,7 @@ struct TaskSettlementView: View {
                         )
                     )
 
-                    Button("返回桌面", action: onClose)
+                    Button("返回桌面".localized, action: onClose)
                         .buttonStyle(NeuTextButtonStyle())
                 }
 
@@ -100,7 +100,7 @@ struct TaskSettlementView: View {
 
             Spacer()
 
-            Text("\(value) 张")
+            Text("%@ 张".localized(value))
                 .font(Theme.Typography.headline.monospacedDigit())
                 .foregroundStyle(tint)
         }

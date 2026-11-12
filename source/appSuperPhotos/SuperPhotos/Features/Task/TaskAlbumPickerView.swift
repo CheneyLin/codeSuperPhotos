@@ -25,7 +25,7 @@ struct TaskAlbumPickerView: View {
             ScrollView {
                 LazyVStack(spacing: Theme.Spacing.sm) {
                     row(
-                        title: "全部照片",
+                        title: "全部照片".localized,
                         count: allPhotoCount,
                         symbolName: "photo.on.rectangle.angled",
                         tint: Theme.Accent.brass
@@ -34,7 +34,7 @@ struct TaskAlbumPickerView: View {
                     }
 
                     row(
-                        title: "未归类照片",
+                        title: "未归类照片".localized,
                         count: uncategorizedCount,
                         symbolName: "folder.badge.questionmark",
                         tint: Theme.Text.secondary
@@ -43,7 +43,7 @@ struct TaskAlbumPickerView: View {
                     }
 
                     if albums.isEmpty {
-                        Text("还没有可整理的自建相簿")
+                        Text("还没有可整理的自建相簿".localized)
                             .font(Theme.Typography.caption)
                             .foregroundStyle(Theme.Text.tertiary)
                             .frame(maxWidth: .infinity)
@@ -63,7 +63,7 @@ struct TaskAlbumPickerView: View {
                 }
                 .padding(Theme.Spacing.page)
 
-                Text("每批最多取 \(batchLimit) 张（设置里可改）。相簿张数不足时按实际张数开始。")
+                Text("每批最多取 %@ 张（设置里可改）。相簿张数不足时按实际张数开始。".localized(batchLimit))
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -71,11 +71,11 @@ struct TaskAlbumPickerView: View {
                     .padding(.bottom, Theme.Spacing.page)
             }
             .background(Theme.Surface.base)
-            .navigationTitle("选择相簿")
+            .navigationTitle("选择相簿".localized)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("取消", action: onClose)
+                    Button("取消".localized, action: onClose)
                         .foregroundStyle(Theme.Text.secondary)
                 }
             }
@@ -104,7 +104,7 @@ struct TaskAlbumPickerView: View {
                         .foregroundStyle(Theme.Text.primary)
                         .lineLimit(1)
 
-                    Text(count.map { "\($0.formatted()) 张" } ?? "计算中…")
+                    Text(count.map { "%@ 张".localized($0.formatted()) } ?? "计算中…".localized)
                         .font(Theme.Typography.caption.monospacedDigit())
                         .foregroundStyle(Theme.Text.secondary)
                 }
@@ -121,7 +121,7 @@ struct TaskAlbumPickerView: View {
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(count.map { "\(title)，\($0) 张" } ?? "\(title)，正在计算")
+        .accessibilityLabel(count.map { "%@，%@ 张".localized(title, $0) } ?? "%@，正在计算".localized(title))
     }
 }
 

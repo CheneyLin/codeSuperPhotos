@@ -141,8 +141,8 @@ struct FavoriteAlbumColumn: View {
                             .offset(y: delta * rh)
                             .zIndex(1000 - Double(abs(delta)))
                             .accessibilityHidden(abs(delta) > renderRange - 0.4)
-                            .accessibilityLabel("\(album.title)，\(album.count) 张")
-                            .accessibilityHint(album.id == selectedAlbumID ? "当前收藏夹" : "点按设为当前收藏夹")
+                            .accessibilityLabel("%@，%@ 张".localized(album.title, album.count))
+                            .accessibilityHint(album.id == selectedAlbumID ? "当前收藏夹".localized : "点按设为当前收藏夹".localized)
                             .accessibilityAddTraits(album.id == selectedAlbumID ? [.isButton, .isSelected] : .isButton)
                             .accessibilityAction {
                                 settle(to: index)
@@ -179,7 +179,7 @@ struct FavoriteAlbumColumn: View {
                 )
             )
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("收藏夹滚轮")
+            .accessibilityLabel("收藏夹滚轮".localized)
             .accessibilityValue(currentAccessibilityValue)
             .accessibilityAdjustableAction { direction in
                 guard albums.count > 1 else { return }
@@ -320,7 +320,7 @@ struct FavoriteAlbumColumn: View {
             Image(systemName: "folder")
                 .font(.system(size: max(12, config.iconSize * 0.15), weight: .regular))
                 .foregroundStyle(Theme.Text.tertiary)
-            Text("没有相簿")
+            Text("没有相簿".localized)
                 .font(.system(size: max(10, config.iconSize * 0.10), weight: .medium))
                 .foregroundStyle(Theme.Text.tertiary)
                 .multilineTextAlignment(.center)
@@ -384,9 +384,9 @@ struct FavoriteAlbumColumn: View {
     }
 
     private var currentAccessibilityValue: String {
-        guard !albums.isEmpty else { return "无相簿" }
+        guard !albums.isEmpty else { return "无相簿".localized }
         let album = albums[clampedIndex(Int(wheelPosition.rounded()))]
-        return "\(album.title)，\(album.count) 张"
+        return "%@，%@ 张".localized(album.title, album.count)
     }
 }
 

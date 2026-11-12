@@ -8,7 +8,7 @@ enum EntitlementTier: String, CaseIterable, Codable, Sendable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .free: "免费版"
+        case .free: "免费版".localized
         case .vip: "VIP"
         }
     }

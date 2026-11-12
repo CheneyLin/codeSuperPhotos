@@ -34,9 +34,9 @@ struct DialView: View {
             .gesture(isEnabled ? dragGesture : nil)
             .opacity(isEnabled ? 1 : 0.55)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label)密码盘")
+            .accessibilityLabel("%@密码盘".localized(label))
             .accessibilityValue("\(value)")
-            .accessibilityHint("范围 0 到 \(count - 1)，上下轻扫每次调整一档")
+            .accessibilityHint("范围 0 到 %@，上下轻扫每次调整一档".localized(count - 1))
             .accessibilityAdjustableAction { direction in
                 guard isEnabled else { return }
                 switch direction {

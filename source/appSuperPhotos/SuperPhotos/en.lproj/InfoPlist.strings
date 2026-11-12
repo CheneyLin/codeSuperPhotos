@@ -1,0 +1,5 @@
+/* SuperPhotos — English (en) */
+"CFBundleDisplayName" = "SuperPhotos";
+"CFBundleName" = "SuperPhotos";
+"NSPhotoLibraryUsageDescription" = "SuperPhotos needs access to your photo library so you can browse, organize photos, and move them into the private vault.";
+"NSPhotoLibraryAddUsageDescription" = "Used to restore photos from the private vault back to your photo library.";

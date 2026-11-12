@@ -18,11 +18,11 @@ enum MachineKind: String, CaseIterable, Codable, Sendable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .wasteBasket: "废纸篓"
-        case .shredder: "碎纸机"
-        case .fireplace: "壁炉"
-        case .mailbox: "邮筒"
-        case .anyDoor: "任意门"
+        case .wasteBasket: "废纸篓".localized
+        case .shredder: "碎纸机".localized
+        case .fireplace: "壁炉".localized
+        case .mailbox: "邮筒".localized
+        case .anyDoor: "任意门".localized
         }
     }
 
@@ -91,11 +91,11 @@ enum MachineKind: String, CaseIterable, Codable, Sendable, Identifiable {
     /// 无障碍 / LCD 提示用的动作描述。
     var dropVerb: String {
         switch self {
-        case .wasteBasket: "投进废纸篓"
-        case .shredder: "送进碎纸机"
-        case .fireplace: "投入壁炉"
-        case .mailbox: "寄进邮筒"
-        case .anyDoor: "送进任意门"
+        case .wasteBasket: "投进废纸篓".localized
+        case .shredder: "送进碎纸机".localized
+        case .fireplace: "投入壁炉".localized
+        case .mailbox: "寄进邮筒".localized
+        case .anyDoor: "送进任意门".localized
         }
     }
 }

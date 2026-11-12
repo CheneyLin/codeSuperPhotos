@@ -88,10 +88,10 @@ final class EntitlementStore {
             product = loaded
             isProductTypeMismatch = loaded?.subscription != nil
             if loaded == nil {
-                notice = "暂时无法获取会员商品，请检查网络或稍后重试。"
+                notice = "暂时无法获取会员商品，请检查网络或稍后重试。".localized
             }
         } catch {
-            notice = "获取会员商品失败：\(error.localizedDescription)"
+            notice = "获取会员商品失败：%@".localized(error.localizedDescription)
         }
     }
 
@@ -136,7 +136,7 @@ final class EntitlementStore {
         for await result in Transaction.currentEntitlements {
             switch result {
             case .verified(let transaction):
-                seen.append(transaction.productID + (transaction.revocationDate == nil ? "" : "(已撤销)"))
+                seen.append(transaction.productID + (transaction.revocationDate == nil ? "" : "(已撤销)".localized))
                 if isUnlocked(transaction) {
                     log("命中 currentEntitlements：\(transaction.productID)")
                     return true
@@ -225,13 +225,13 @@ final class EntitlementStore {
             switch try await product.purchase() {
             case .success(let verification):
                 guard case .verified(let transaction) = verification else {
-                    notice = "交易未能通过校验，请联系 App Store 支持。"
+                    notice = "交易未能通过校验，请联系 App Store 支持。".localized
                     return
                 }
                 await transaction.finish()
 
                 guard isUnlocked(transaction) else {
-                    notice = "购买已完成，但交易与 VIP 计费点不一致，请联系支持。"
+                    notice = "购买已完成，但交易与 VIP 计费点不一致，请联系支持。".localized
                     await refreshEntitlements()
                     return
                 }
@@ -244,17 +244,17 @@ final class EntitlementStore {
                 // 本次交易的购买日立即生效，欢迎语不用等收据同步完成。
                 recordVIPStart(transaction.purchaseDate)
                 purchaseGraceUntil = Date().addingTimeInterval(60)
-                notice = "购买成功，VIP 已永久解锁。"
+                notice = "购买成功，VIP 已永久解锁。".localized
                 scheduleConfirmation()
             case .userCancelled:
                 break
             case .pending:
-                notice = "购买正在等待处理（例如需要家长批准），完成后权益会自动开通。"
+                notice = "购买正在等待处理（例如需要家长批准），完成后权益会自动开通。".localized
             @unknown default:
                 break
             }
         } catch {
-            notice = "购买未完成：\(error.localizedDescription)"
+            notice = "购买未完成：%@".localized(error.localizedDescription)
         }
     }
 
@@ -274,10 +274,10 @@ final class EntitlementStore {
             try await AppStore.sync()
             let isActive = await refreshEntitlements()
             notice = isActive
-                ? "已恢复购买，VIP 权益已开启。"
-                : "未找到可恢复的购买记录；若刚购买请稍后再试。"
+                ? "已恢复购买，VIP 权益已开启。".localized
+                : "未找到可恢复的购买记录；若刚购买请稍后再试。".localized
         } catch {
-            notice = "恢复失败：\(error.localizedDescription)"
+            notice = "恢复失败：%@".localized(error.localizedDescription)
         }
     }
 
@@ -310,8 +310,8 @@ final class EntitlementStore {
     /// 是「收据尚未同步」还是「商品 ID 不匹配 / 交易未通过校验」。
     func diagnostics() async -> String {
         var lines = [
-            "计费点：\(Self.vipProductID)",
-            "当前权益：\(tier.displayName)"
+            "计费点：%@".localized(Self.vipProductID),
+            "当前权益：%@".localized(tier.displayName)
         ]
 
         var currentCount = 0

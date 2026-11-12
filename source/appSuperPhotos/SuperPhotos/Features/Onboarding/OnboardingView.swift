@@ -13,35 +13,35 @@ struct OnboardingView: View {
     private let pages: [OnboardingPage] = [
         OnboardingPage(
             symbol: "rectangle.stack",
-            title: "从桌面开始一批",
-            subtitle: "桌面不展示照片，选一个相簿，一次最多整理 \(TaskPolicy.configuredBatchSize) 张。",
+            title: "从桌面开始一批".localized,
+            subtitle: "桌面不展示照片，选一个相簿，一次最多整理 %@ 张。".localized(TaskPolicy.configuredBatchSize),
             items: [
-                .init("photo.stack", "选择相簿", "「全部照片」或任意自建相簿，按顺序逐张处理。"),
-                .init("photo", "中央舞台", "四张堆叠，轻点全屏，双指缩放。"),
-                .init("sidebar.left", "左右抽屉", "左侧保险箱预览，右侧相簿列表。"),
-                .init("flame", "底部机器", "壁炉与碎纸机，选择删除方式。")
+                .init("photo.stack", "选择相簿".localized, "「全部照片」或任意自建相簿，按顺序逐张处理。".localized),
+                .init("photo", "中央舞台".localized, "四张堆叠，轻点全屏，双指缩放。".localized),
+                .init("sidebar.left", "左右抽屉".localized, "左侧保险箱预览，右侧相簿列表。".localized),
+                .init("flame", "底部机器".localized, "壁炉与碎纸机，选择删除方式。".localized)
             ]
         ),
         OnboardingPage(
             symbol: "flame",
-            title: "先入队，任务结束统一处理",
-            subtitle: "下滑只加入本批待销毁，不会立刻删除系统照片。",
+            title: "先入队，任务结束统一处理".localized,
+            subtitle: "下滑只加入本批待销毁，不会立刻删除系统照片。".localized,
             items: [
-                .init("hand.draw", "下滑照片", "超过 \(Int(StageStackPolicy.discardCommitDistance))pt 才计入，不足会弹回原位。"),
-                .init("flame", "飞入处理口", "照片飞进底部炉口或刀口，粒子里消失。"),
-                .init("checkmark.circle", "统一结算", "一批处理完才加密保险箱、删除废纸篓。"),
-                .init("arrow.uturn.backward", "系统确认", "不可逆操作由系统确认框把关；取消不会留下重复副本。")
+                .init("hand.draw", "下滑照片".localized, "超过 %@pt 才计入，不足会弹回原位。".localized(Int(StageStackPolicy.discardCommitDistance))),
+                .init("flame", "飞入处理口".localized, "照片飞进底部炉口或刀口，粒子里消失。".localized),
+                .init("checkmark.circle", "统一结算".localized, "一批处理完才加密保险箱、删除废纸篓。".localized),
+                .init("arrow.uturn.backward", "系统确认".localized, "不可逆操作由系统确认框把关；取消不会留下重复副本。".localized)
             ]
         ),
         OnboardingPage(
             symbol: "lock.shield",
-            title: "保险箱只在本机",
-            subtitle: "不想被随手翻到的照片，复制一份到 App 沙盒。",
+            title: "保险箱只在本机".localized,
+            subtitle: "不想被随手翻到的照片，复制一份到 App 沙盒。".localized,
             items: [
-                .init("lock.doc", "本地副本", "不联网、不上传，钥匙只在本机。"),
-                .init("circle.grid.3x3", "密码盘", "转动内外两圈组合，支持 VoiceOver 调节。"),
-                .init("clock.badge.checkmark", "自动锁定", "切到后台立即上锁，可设置延迟。"),
-                .init("exclamationmark.triangle", "无法找回", "忘记组合只能重置保险箱。")
+                .init("lock.doc", "本地副本".localized, "不联网、不上传，钥匙只在本机。".localized),
+                .init("circle.grid.3x3", "密码盘".localized, "转动内外两圈组合，支持 VoiceOver 调节。".localized),
+                .init("clock.badge.checkmark", "自动锁定".localized, "切到后台立即上锁，可设置延迟。".localized),
+                .init("exclamationmark.triangle", "无法找回".localized, "忘记组合只能重置保险箱。".localized)
             ]
         )
     ]
@@ -89,14 +89,14 @@ struct OnboardingView: View {
 
             Spacer()
 
-            Button("跳过") {
+            Button("跳过".localized) {
                 onFinish()
             }
             .font(Theme.Typography.caption.weight(.semibold))
             .foregroundStyle(Theme.Text.secondary)
             .padding(.vertical, 8)
             .padding(.horizontal, Theme.Spacing.sm)
-            .accessibilityHint("跳过引导，直接进入主界面")
+            .accessibilityHint("跳过引导，直接进入主界面".localized)
         }
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.top, Theme.Spacing.sm)
@@ -138,7 +138,7 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(page.title)。\(page.subtitle)")
+        .accessibilityLabel("%@。%@".localized(page.title, page.subtitle))
     }
 
     private func itemRow(_ item: OnboardingPage.Item) -> some View {
@@ -185,7 +185,7 @@ struct OnboardingView: View {
         }
         .padding(.vertical, Theme.Spacing.md)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("第 \(page + 1) 页，共 \(pages.count) 页")
+        .accessibilityLabel("第 %@ 页，共 %@ 页".localized(page + 1, pages.count))
     }
 
     private var footerButton: some View {
@@ -196,13 +196,13 @@ struct OnboardingView: View {
                 onFinish()
             }
         } label: {
-            Text(page < pages.count - 1 ? "下一步" : "开始整理")
+            Text(page < pages.count - 1 ? "下一步".localized : "开始整理".localized)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(NeuPillButtonStyle())
         .padding(.horizontal, Theme.Spacing.page)
         .padding(.bottom, Theme.Spacing.xl)
-        .accessibilityHint(page < pages.count - 1 ? "进入下一页" : "完成引导并进入主界面")
+        .accessibilityHint(page < pages.count - 1 ? "进入下一页".localized : "完成引导并进入主界面".localized)
     }
 }
 

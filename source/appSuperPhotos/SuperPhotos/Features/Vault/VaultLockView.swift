@@ -25,6 +25,9 @@ struct VaultLockView: View {
 
     @State private var isLocked = false
     @State private var remainingSeconds = 0
+    /// 标记当前错误是否为「锁定倒计时」提示。
+    /// 用状态位而非文案前缀判断，避免多语言环境下前缀匹配失效。
+    @State private var isLockCountdownError = false
 
     @State private var setupFirstCombo: (a: Int, b: Int)?
     @State private var pendingCombo: (a: Int, b: Int)?
@@ -56,7 +59,7 @@ struct VaultLockView: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(.neuIcon)
-                .accessibilityLabel("关闭保险箱")
+                .accessibilityLabel("关闭保险箱".localized)
                 .padding(.trailing, Theme.Spacing.page)
                 .padding(.top, Theme.Spacing.sm)
             }
@@ -67,7 +70,7 @@ struct VaultLockView: View {
             isRoomOpen = false
             left = 0
             right = 0
-            errorText = nil
+            clearError()
             refreshLockState()
         }
         #if DEBUG
@@ -89,12 +92,12 @@ struct VaultLockView: View {
                 try? await Task.sleep(for: .seconds(1))
             }
         }
-        .alert("密码已设置", isPresented: $showComboAck) {
-            Button("我记下了") {
+        .alert("密码已设置".localized, isPresented: $showComboAck) {
+            Button("我记下了".localized) {
                 isRoomOpen = true
             }
         } message: {
-            Text("你的组合是：左盘 \(pendingCombo?.a ?? 0) / 右盘 \(pendingCombo?.b ?? 0)。忘记后无法找回，请立即记下。")
+            Text("你的组合是：左盘 %@ / 右盘 %@。忘记后无法找回，请立即记下。".localized(pendingCombo?.a ?? 0, pendingCombo?.b ?? 0))
         }
     }
 
@@ -165,16 +168,16 @@ struct VaultLockView: View {
         let tone: Color
 
         if isLocked {
-            message = "已锁定，请在 \(countdownText) 后重试"
+            message = "已锁定，请在 %@ 后重试".localized(countdownText)
             tone = Theme.State.danger
         } else if isVerifying {
-            message = "正在核对组合…"
+            message = "正在核对组合…".localized
             tone = Theme.State.danger
         } else if let errorText {
             message = errorText
             tone = Theme.State.danger
         } else if left == 0, right == 0 {
-            message = "0 + 0 不可作为密码，请转动密码盘设置组合"
+            message = "0 + 0 不可作为密码，请转动密码盘设置组合".localized
             tone = Theme.State.warning
         } else {
             message = nil
@@ -201,23 +204,23 @@ struct VaultLockView: View {
 
         return HStack(alignment: .top, spacing: -overlap) {
             DialView(
-                label: "左盘 A · 0–\(VaultCredentials.leftMaxDialValue)",
+                label: "左盘 A · 0–%@".localized(VaultCredentials.leftMaxDialValue),
                 count: VaultCredentials.leftDialCount,
                 value: $left,
                 isEnabled: dialsEnabled,
                 diameter: small
             ) {
-                errorText = nil
+                clearError()
             }
 
             DialView(
-                label: "右盘 B · 0–\(VaultCredentials.rightMaxDialValue)",
+                label: "右盘 B · 0–%@".localized(VaultCredentials.rightMaxDialValue),
                 count: VaultCredentials.rightDialCount,
                 value: $right,
                 isEnabled: dialsEnabled,
                 diameter: large
             ) {
-                errorText = nil
+                clearError()
             }
             .offset(y: drop)
         }
@@ -231,7 +234,7 @@ struct VaultLockView: View {
             Button {
                 attemptUnlock()
             } label: {
-                Label("开门", systemImage: "door.left.hand.open")
+                Label("开门".localized, systemImage: "door.left.hand.open")
             }
             .buttonStyle(
                 NeuPillButtonStyle(
@@ -242,22 +245,22 @@ struct VaultLockView: View {
             // 只有点这里才比对：两盘停稳不触发校验。
             // 0/0 视为非法组合，已在 canPressDoor 中禁用。
             .disabled(!canPressDoor)
-            .accessibilityLabel("开门")
-            .accessibilityHint("用左盘 \(left) 和右盘 \(right) 的当前读数尝试解锁")
+            .accessibilityLabel("开门".localized)
+            .accessibilityHint("用左盘 %@ 和右盘 %@ 的当前读数尝试解锁".localized(left, right))
 
         case .setupFirst:
             Button {
                 guard !(left == 0 && right == 0) else {
-                    errorText = "密码不能是 0 + 0，请先转动密码盘设置组合"
+                    setError("密码不能是 0 + 0，请先转动密码盘设置组合".localized)
                     return
                 }
                 setupFirstCombo = (left, right)
                 mode = .setupConfirm
                 left = 0
                 right = 0
-                errorText = "再转一次相同组合，确认你记住了"
+                setError("再转一次相同组合，确认你记住了".localized)
             } label: {
-                Label("下一步", systemImage: "arrow.right")
+                Label("下一步".localized, systemImage: "arrow.right")
             }
             .buttonStyle(
                 NeuPillButtonStyle(
@@ -270,7 +273,7 @@ struct VaultLockView: View {
             Button {
                 confirmSetup()
             } label: {
-                Label("确认保存", systemImage: "checkmark")
+                Label("确认保存".localized, systemImage: "checkmark")
             }
             .buttonStyle(
                 NeuPillButtonStyle(
@@ -289,7 +292,7 @@ struct VaultLockView: View {
                 Button {
                     redoSetup()
                 } label: {
-                    Label("重新来过", systemImage: "arrow.counterclockwise")
+                    Label("重新来过".localized, systemImage: "arrow.counterclockwise")
                 }
                 .buttonStyle(NeuTextButtonStyle())
             }
@@ -310,17 +313,17 @@ struct VaultLockView: View {
 
     private var titleText: String {
         switch mode {
-        case .unlock: "私密保险箱"
-        case .setupFirst: "设置保险箱密码"
-        case .setupConfirm: "确认你的组合"
+        case .unlock: "私密保险箱".localized
+        case .setupFirst: "设置保险箱密码".localized
+        case .setupConfirm: "确认你的组合".localized
         }
     }
 
     private var subtitleText: String {
         switch mode {
-        case .unlock: "转动两个密码盘，再点「开门」"
-        case .setupFirst: "选择任意组合，设置后无法找回"
-        case .setupConfirm: "再输入一次，确保组合无误"
+        case .unlock: "转动两个密码盘，再点「开门」".localized
+        case .setupFirst: "选择任意组合，设置后无法找回".localized
+        case .setupConfirm: "再输入一次，确保组合无误".localized
         }
     }
 
@@ -343,8 +346,9 @@ struct VaultLockView: View {
         let status = VaultLockPolicy.status()
         isLocked = status.isLocked()
         remainingSeconds = status.remainingSeconds()
-        if !isLocked, errorText?.hasPrefix("已锁定") == true {
+        if !isLocked, isLockCountdownError {
             errorText = nil
+            isLockCountdownError = false
         }
     }
 
@@ -362,13 +366,14 @@ struct VaultLockView: View {
             case .success:
                 openDoor()
             case .wrong(let remaining):
-                fail("密码不对，还剩 \(remaining) 次")
+                fail("密码不对，还剩 %@ 次".localized(remaining))
             case .locked(let seconds):
                 refreshLockState()
-                errorText = "已锁定，请等待倒计时结束"
+                errorText = "已锁定，请等待倒计时结束".localized
+                isLockCountdownError = true
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
                 AccessibilityNotification.Announcement(
-                    "尝试次数过多，已锁定，请在 \(seconds) 秒后重试"
+                    "尝试次数过多，已锁定，请在 %@ 秒后重试".localized(seconds)
                 ).post()
             case .notConfigured:
                 mode = .setupFirst
@@ -386,7 +391,7 @@ struct VaultLockView: View {
             setupFirstCombo = nil
             left = 0
             right = 0
-            errorText = "密码不能是 0 + 0，请重新设置"
+            setError("密码不能是 0 + 0，请重新设置".localized)
             return
         }
         guard first.a == left, first.b == right else {
@@ -394,7 +399,7 @@ struct VaultLockView: View {
             setupFirstCombo = nil
             left = 0
             right = 0
-            fail("两次组合不一致，请重新设置")
+            fail("两次组合不一致，请重新设置".localized)
             return
         }
 
@@ -404,7 +409,7 @@ struct VaultLockView: View {
             showComboAck = true
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
-            errorText = error.localizedDescription
+            setError(error.localizedDescription)
         }
     }
 
@@ -414,11 +419,24 @@ struct VaultLockView: View {
         setupFirstCombo = nil
         left = 0
         right = 0
+        clearError()
+    }
+
+    /// 清空错误提示，并复位锁定倒计时标记。
+    private func clearError() {
         errorText = nil
+        isLockCountdownError = false
+    }
+
+    /// 设置普通错误提示（非锁定倒计时）。
+    private func setError(_ message: String) {
+        errorText = message
+        isLockCountdownError = false
     }
 
     private func fail(_ message: String) {
         errorText = message
+        isLockCountdownError = false
         UINotificationFeedbackGenerator().notificationOccurred(.error)
         // 失败反馈除颜色与抖动外，必须有一条独立的语音播报。
         AccessibilityNotification.Announcement(message).post()
@@ -438,7 +456,7 @@ struct VaultLockView: View {
     }
 
     private func openDoor() {
-        errorText = nil
+        clearError()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 
         if reduceMotion {

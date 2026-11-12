@@ -9,11 +9,11 @@ enum VaultRestoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingFile:
-            return "保险箱文件缺失，无法取出"
+            return "保险箱文件缺失，无法取出".localized
         case .writeFailed(let detail):
-            return "重建资产失败：\(detail)"
+            return "重建资产失败：%@".localized(detail)
         case .assetMissing:
-            return "重建后的资产找不到"
+            return "重建后的资产找不到".localized
         }
     }
 }

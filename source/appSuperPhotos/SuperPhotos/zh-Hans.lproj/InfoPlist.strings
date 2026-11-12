@@ -1,0 +1,5 @@
+/* SuperPhotos — 简体中文（基准） */
+"CFBundleDisplayName" = "SuperPhotos";
+"CFBundleName" = "SuperPhotos";
+"NSPhotoLibraryUsageDescription" = "SuperPhotos 需要访问你的相簿，以便浏览、整理照片，并把照片存入保险箱。";
+"NSPhotoLibraryAddUsageDescription" = "用于把保险箱中的照片恢复到相簿。";

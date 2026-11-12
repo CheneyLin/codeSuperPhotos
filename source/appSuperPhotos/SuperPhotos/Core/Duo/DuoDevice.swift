@@ -38,10 +38,10 @@ enum DuoHingeState: String, Equatable, Sendable {
 
     var label: String {
         switch self {
-        case .notDuo:        return "普通设备"
-        case .closed:        return "外屏 · 闭合"
-        case .partiallyOpen: return "半开 · 书本"
-        case .fullyOpen:     return "内屏 · 全开"
+        case .notDuo:        return "普通设备".localized
+        case .closed:        return "外屏 · 闭合".localized
+        case .partiallyOpen: return "半开 · 书本".localized
+        case .fullyOpen:     return "内屏 · 全开".localized
         }
     }
 }
@@ -66,12 +66,12 @@ struct DuoDeviceInfo: Equatable, Sendable {
     var isDuo: Bool { hingeState != .notDuo }
 
     var posture: String {
-        guard isDuo else { return "非 Duo" }
-        if isOuterScreen { return "外屏" }
+        guard isDuo else { return "非 Duo".localized }
+        if isOuterScreen { return "外屏".localized }
         if isLaptopPose {
-            return innerIsLandscape ? "书本 · 横" : "书本 · 竖"
+            return innerIsLandscape ? "书本 · 横".localized : "书本 · 竖".localized
         }
-        return innerIsLandscape ? "内屏 · 横" : "内屏 · 竖"
+        return innerIsLandscape ? "内屏 · 横".localized : "内屏 · 竖".localized
     }
 
     /// 唯一入口：由原始量推导全部派生状态，避免多条 onChange 链互相覆盖。

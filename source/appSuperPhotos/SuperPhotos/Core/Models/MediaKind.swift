@@ -13,12 +13,12 @@ enum MediaKind: String, CaseIterable, Codable, Sendable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .photo: "照片"
-        case .video: "视频"
-        case .livePhoto: "实况照片"
-        case .screenshot: "截图"
-        case .panorama: "全景"
-        case .animated: "动图"
+        case .photo: "照片".localized
+        case .video: "视频".localized
+        case .livePhoto: "实况照片".localized
+        case .screenshot: "截图".localized
+        case .panorama: "全景".localized
+        case .animated: "动图".localized
         }
     }
 

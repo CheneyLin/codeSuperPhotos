@@ -9,11 +9,11 @@ enum PhotoLibraryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptySelection:
-            return "没有可删除的照片"
+            return "没有可删除的照片".localized
         case .deleteCancelled:
-            return "已取消删除"
+            return "已取消删除".localized
         case .deleteFailed(let detail):
-            return "删除失败：\(detail)"
+            return "删除失败：%@".localized(detail)
         }
     }
 }

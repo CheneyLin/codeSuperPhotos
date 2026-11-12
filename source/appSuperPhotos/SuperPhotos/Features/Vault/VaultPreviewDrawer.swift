@@ -16,7 +16,7 @@ struct VaultPreviewDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
             HStack {
-                Text("私密保险箱")
+                Text("私密保险箱".localized)
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.Text.primary)
 
@@ -29,34 +29,34 @@ struct VaultPreviewDrawer: View {
                         Image(systemName: "xmark")
                     }
                     .buttonStyle(.neuIcon)
-                    .accessibilityLabel("关闭保险箱预览")
+                    .accessibilityLabel("关闭保险箱预览".localized)
                 }
             }
 
             doorGraphic
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text("已存 \(vault.records.count) 件")
+                Text("已存 %@ 件".localized(vault.records.count))
                     .font(Theme.Typography.headline.monospacedDigit())
                     .foregroundStyle(Theme.Text.primary)
 
-                Text("占用 \(VaultLimits.readableBytes(vault.totalBytes))")
+                Text("占用 %@".localized(VaultLimits.readableBytes(vault.totalBytes)))
                     .font(Theme.Typography.caption.monospacedDigit())
                     .foregroundStyle(Theme.Text.secondary)
 
                 if isVIP {
-                    Text("VIP：不限容量，支持实况照片与视频")
+                    Text("VIP：不限容量，支持实况照片与视频".localized)
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Accent.fire)
                 } else {
-                    Text("免费版：最多 60 件 / 2GB，仅静态图片")
+                    Text("免费版：最多 60 件 / 2GB，仅静态图片".localized)
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.tertiary)
                 }
 
                 let pending = vault.records.filter(\.pendingRemoval).count
                 if pending > 0 {
-                    Text("有 \(pending) 件原件仍在系统相簿，可在房间内重试移出")
+                    Text("有 %@ 件原件仍在系统相簿，可在房间内重试移出".localized(pending))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.State.danger)
                 }
@@ -66,7 +66,7 @@ struct VaultPreviewDrawer: View {
                 Button {
                     onUnlock()
                 } label: {
-                    Label(vault.isConfigured ? "解锁并查看" : "设置密码", systemImage: "lock.open")
+                    Label(vault.isConfigured ? "解锁并查看".localized : "设置密码".localized, systemImage: "lock.open")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(NeuPillButtonStyle())
@@ -74,7 +74,7 @@ struct VaultPreviewDrawer: View {
                 Button {
                     onStoreCurrent()
                 } label: {
-                    Label("存入当前照片", systemImage: "tray.and.arrow.down")
+                    Label("存入当前照片".localized, systemImage: "tray.and.arrow.down")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(NeuButtonStyle(variant: .raisedSmall, cornerRadius: Theme.Radius.card))
@@ -85,10 +85,10 @@ struct VaultPreviewDrawer: View {
             Spacer(minLength: Theme.Spacing.sm)
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text("入库 = 复制到 App 保险箱 + 移出系统相簿")
+                Text("入库 = 复制到 App 保险箱 + 移出系统相簿".localized)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
-                Text("原件会进入系统『最近删除』，保留 30 天。密码忘记后无法找回。")
+                Text("原件会进入系统『最近删除』，保留 30 天。密码忘记后无法找回。".localized)
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
             }
