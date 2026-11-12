@@ -1008,6 +1008,23 @@ struct HomeView: View {
             snooze.unsnooze(id: undone.id)
         }
 
+        // 「加入收藏夹」的撤销：把照片从收藏夹移出，并放回移入前所属的用户相簿。
+        // 还原走与「移入」相同的串行写队列，保证还原发生在移入之后。
+        if let move = undone.favoriteMove {
+            Task {
+                do {
+                    try await albumService.revertFavoriteMove(move, assetIDs: [undone.id])
+                } catch {
+                    toastMessage = ToastMessage(
+                        text: "撤销收藏失败：%@".localized(error.localizedDescription),
+                        kind: .warning
+                    )
+                }
+                await albumService.load(force: true)
+                syncDefaultAlbum()
+            }
+        }
+
         currentID = undone.id
         isZoomed = false
         zoomScale = 1
@@ -1326,12 +1343,15 @@ struct HomeView: View {
         favoritesReceiving = true
 
         let nextID = idAfterRemoving(id)
+        // 移入收藏夹前先同步采集「照片原本所属的用户相簿」，作为撤销还原依据。
+        let moveInfo = albumService.favoriteMoveInfo(for: [id], targetAlbumID: albumID)
         // 舞台数据的推进显式禁用动画：左右滑会在飞出动画开始时就改 items，
         // 若被任何外层动画事务带上，新前排会被插值淡入而露出后面的卡。
         var noAnimation = Transaction()
         noAnimation.disablesAnimations = true
         withTransaction(noAnimation) {
-            task.record(id: id, decision: .keep)
+            // 记录决策的同时存下相簿还原信息，撤销时无论移入是否落地都能正确回退。
+            task.record(id: id, decision: .keep, favoriteMove: moveInfo)
             currentID = nextID
             isZoomed = false
             zoomScale = 1
@@ -1342,7 +1362,7 @@ struct HomeView: View {
             do {
                 // 移入目标收藏夹的同时，清掉它在其它用户相簿里的归属，
                 // 保证照片只在这一个新的收藏夹里（移动而非追加）。
-                try await albumService.moveAssets([id], toAlbum: albumID)
+                try await albumService.performFavoriteMove([id], toAlbum: albumID)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 showLCDNotice("已移入「%@」".localized(settings.defaultAlbumTitle), tone: .success)
             } catch {

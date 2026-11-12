@@ -1,5 +1,36 @@
 import Photos
 
+/// 一次「加入收藏夹」造成的相簿变更；撤销时据此把照片移出收藏夹并放回原处。
+struct FavoriteMove: Codable, Equatable, Sendable {
+    /// 移入的目标相簿。
+    var targetAlbumID: String
+    /// 移入前照片所属的用户自建相簿；撤销时按这份名单还原。
+    var previousAlbumIDs: [String]?
+}
+
+/// 相簿写操作的串行队列。
+///
+/// 「移入收藏夹」与「撤销还原」都是对系统相簿的真实写操作，必须严格按提交顺序落地：
+/// 如果还原先于移入执行，撤销看起来毫无效果，照片仍会留在收藏夹里。
+/// 队列保证「先提交的写操作先完成」。
+private actor AlbumWriteQueue {
+    /// 当前队列尾；下一个写操作会等它结束再开始。
+    private var tail: Task<Void, Never>?
+
+    /// 把写操作排到队尾执行，并返回它的结果。
+    func run<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        let previous = tail
+        let handle = Task<T, Error> {
+            if let previous {
+                _ = await previous.result
+            }
+            return try await operation()
+        }
+        tail = Task { _ = await handle.result }
+        return try await handle.value
+    }
+}
+
 struct AlbumItem: Identifiable, Equatable, Sendable {
     enum Kind: Sendable {
         case all
@@ -55,6 +86,10 @@ final class AlbumService {
     private var hasLoaded = false
     private var hasCountedUncategorized = false
     private var needsUncategorizedRecount = false
+
+    /// 相簿写操作的串行队列；「移入收藏夹」与「撤销还原」都从这里排队，
+    /// 保证还原一定发生在移入之后。
+    private let writeQueue = AlbumWriteQueue()
 
     /// 弹窗展示用：首次计算完成前为 nil（显示「计算中…」），
     /// 之后的刷新期间沿用上一次结果，避免数字闪烁。
@@ -199,6 +234,73 @@ final class AlbumService {
 
     /// 把照片加入用户相簿（不复制、不删除，只建立归属）。
     func addAssets(_ localIDs: [String], toAlbum albumID: String) async throws {
+        try await writeQueue.run {
+            try await Self._addAssets(localIDs, toAlbum: albumID)
+        }
+    }
+
+    /// 把照片「移入」目标用户相簿：先从其它所有用户自建相簿里移除这些资产，
+    /// 再加入目标相簿，确保它们在任意时刻只归属一个用户相簿。
+    /// 系统智能相簿（收藏 / 视频 / 截图…）不参与清理，也无需清理。
+    func moveAssets(_ localIDs: [String], toAlbum targetAlbumID: String) async throws {
+        try await writeQueue.run {
+            try await Self._moveAssets(localIDs, toAlbum: targetAlbumID)
+        }
+    }
+
+    /// 加入收藏夹前，先同步采集「移入前照片所属的用户相簿」，
+    /// 供撤销时还原。采集在移入「之前」完成，因此即便还原在移入仍未落地的
+    /// 瞬间被触发，也能把照片正确送回原处。
+    func favoriteMoveInfo(for localIDs: [String], targetAlbumID: String) -> FavoriteMove {
+        FavoriteMove(
+            targetAlbumID: targetAlbumID,
+            previousAlbumIDs: Self.userAlbumMembership(for: localIDs)
+        )
+    }
+
+    /// 走串行队列执行「加入收藏夹」的真实写操作（移入目标并清掉其它归属）。
+    func performFavoriteMove(_ localIDs: [String], toAlbum targetAlbumID: String) async throws {
+        try await writeQueue.run {
+            try await Self._moveAssets(localIDs, toAlbum: targetAlbumID)
+        }
+    }
+
+    /// 走串行队列撤销「加入收藏夹」：把照片移出目标相簿，并放回移入前所属的用户相簿。
+    /// 由于经过同一串行队列，还原一定发生在「移入」之后，不会留下悬空归属。
+    func revertFavoriteMove(_ move: FavoriteMove, assetIDs: [String]) async throws {
+        try await writeQueue.run {
+            try await Self._removeAssets(assetIDs, from: move.targetAlbumID)
+            if let previous = move.previousAlbumIDs {
+                for albumID in previous {
+                    try await Self._addAssets(assetIDs, toAlbum: albumID)
+                }
+            }
+        }
+    }
+
+    // MARK: - 非隔离写操作（只触碰 Photos 框架，不读写本类状态，可在写队列内并发调用）
+
+    /// 采集每张资产当前所属的用户自建相簿（用于撤销还原）。
+    nonisolated static func userAlbumMembership(for localIDs: [String]) -> [String] {
+        guard !localIDs.isEmpty else { return [] }
+        let predicate = NSPredicate(format: "localIdentifier IN %@", localIDs)
+        var result: [String] = []
+        let collections = PHAssetCollection.fetchAssetCollections(
+            with: .album,
+            subtype: .albumRegular,
+            options: nil
+        )
+        collections.enumerateObjects { collection, _, _ in
+            let options = PHFetchOptions()
+            options.predicate = predicate
+            let contained = PHAsset.fetchAssets(in: collection, options: options)
+            guard contained.count > 0 else { return }
+            result.append(collection.localIdentifier)
+        }
+        return result
+    }
+
+    nonisolated static func _addAssets(_ localIDs: [String], toAlbum albumID: String) async throws {
         guard !localIDs.isEmpty else { return }
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard status == .authorized || status == .limited else {
@@ -220,10 +322,29 @@ final class AlbumService {
         }
     }
 
-    /// 把照片「移入」目标用户相簿：先从其它所有用户自建相簿里移除这些资产，
-    /// 再加入目标相簿，确保它们在任意时刻只归属一个用户相簿。
-    /// 系统智能相簿（收藏 / 视频 / 截图…）不参与清理，也无需清理。
-    func moveAssets(_ localIDs: [String], toAlbum targetAlbumID: String) async throws {
+    nonisolated static func _removeAssets(_ localIDs: [String], from albumID: String) async throws {
+        guard !localIDs.isEmpty else { return }
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            throw AlbumEditError.notAuthorized
+        }
+        guard let album = PHAssetCollection.fetchAssetCollections(
+            withLocalIdentifiers: [albumID],
+            options: nil
+        ).firstObject else {
+            throw AlbumEditError.albumMissing
+        }
+
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: localIDs, options: nil)
+        guard assets.count > 0 else { throw AlbumEditError.assetsMissing }
+
+        try await PHPhotoLibrary.shared().performChanges {
+            guard let request = PHAssetCollectionChangeRequest(for: album) else { return }
+            request.removeAssets(assets)
+        }
+    }
+
+    nonisolated static func _moveAssets(_ localIDs: [String], toAlbum targetAlbumID: String) async throws {
         guard !localIDs.isEmpty else { return }
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard status == .authorized || status == .limited else {

@@ -20,9 +20,27 @@ struct CleaningTaskSnapshot: Codable, Equatable, Sendable {
     var batchSize: Int
     /// 决策写入顺序（旧 → 新）；撤销只回退最后一条。
     var decisionOrder: [String]
+    /// 「加入收藏夹」造成的相簿变更；撤销时据此把照片移出收藏夹并放回原处。
+    var favoriteMoves: [String: FavoriteMove]
 
     func count(of decision: TaskDecision) -> Int {
         decisions.values.filter { $0 == decision }.count
+    }
+}
+
+extension CleaningTaskSnapshot {
+    /// 旧快照没有 `favoriteMoves` 字段时按空字典处理，保证升级后能继续读取历史任务。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        albumLocalID = try c.decodeIfPresent(String.self, forKey: .albumLocalID)
+        albumTitle = try c.decode(String.self, forKey: .albumTitle)
+        assetIDs = try c.decode([String].self, forKey: .assetIDs)
+        kinds = try c.decode([String: String].self, forKey: .kinds)
+        decisions = try c.decode([String: TaskDecision].self, forKey: .decisions)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        batchSize = try c.decode(Int.self, forKey: .batchSize)
+        decisionOrder = try c.decode([String].self, forKey: .decisionOrder)
+        favoriteMoves = try c.decodeIfPresent([String: FavoriteMove].self, forKey: .favoriteMoves) ?? [:]
     }
 }
 
@@ -137,7 +155,8 @@ final class CleaningTaskStore {
             decisions: [:],
             startedAt: Date(),
             batchSize: batchSize,
-            decisionOrder: []
+            decisionOrder: [],
+            favoriteMoves: [:]
         )
         self.items = items
         persist()
@@ -145,29 +164,36 @@ final class CleaningTaskStore {
     }
 
     /// 记录一张的最终去向；重复记录会被忽略。
-    func record(id: String, decision: TaskDecision) {
+    /// `favoriteMove` 仅「加入收藏夹」时传入，记录撤销所需的相簿还原信息。
+    func record(id: String, decision: TaskDecision, favoriteMove: FavoriteMove? = nil) {
         guard var snapshot,
               snapshot.assetIDs.contains(id),
               snapshot.decisions[id] == nil else { return }
         snapshot.decisions[id] = decision
+        if let favoriteMove {
+            snapshot.favoriteMoves[id] = favoriteMove
+        }
         snapshot.decisionOrder.append(id)
         self.snapshot = snapshot
         persist()
     }
 
     /// 撤销最近一条决策：退回舞台并恢复计数。
-    /// 返回被撤回的照片 id 与去向；没有可撤销项时返回 nil。
+    /// 返回被撤回的照片 id、去向，以及（若属于收藏夹操作）相簿还原信息；
+    /// 没有可撤销项时返回 nil。
     @discardableResult
-    func undoLastDecision() -> (id: String, decision: TaskDecision)? {
+    func undoLastDecision() -> (id: String, decision: TaskDecision, favoriteMove: FavoriteMove?)? {
         guard var snapshot,
               let id = snapshot.decisionOrder.last,
               let decision = snapshot.decisions[id] else { return nil }
 
         snapshot.decisionOrder.removeLast()
         snapshot.decisions.removeValue(forKey: id)
+        let move = snapshot.favoriteMoves[id]
+        snapshot.favoriteMoves.removeValue(forKey: id)
         self.snapshot = snapshot
         persist()
-        return (id, decision)
+        return (id: id, decision: decision, favoriteMove: move)
     }
 
     /// 启动时按快照顺序还原照片；系统里已不存在的资产会从任务中剔除。
@@ -183,6 +209,7 @@ final class CleaningTaskStore {
             snapshot.kinds = snapshot.kinds.filter { existingIDs.contains($0.key) }
             snapshot.decisions = snapshot.decisions.filter { existingIDs.contains($0.key) }
             snapshot.decisionOrder = snapshot.decisionOrder.filter { existingIDs.contains($0) }
+            snapshot.favoriteMoves = snapshot.favoriteMoves.filter { existingIDs.contains($0.key) }
             self.snapshot = snapshot
         }
 
