@@ -53,8 +53,12 @@ struct VaultRemoteItem: Sendable {
 enum VaultSyncField {
     static let containerIdentifier = "iCloud.com.gpwzw.appSuperPhotos"
     static let recordType: CKRecord.RecordType = "VaultItem"
+    static let zoneID = CKRecordZone.ID(
+        zoneName: "VaultSyncZone",
+        ownerName: CKCurrentUserDefaultName
+    )
     static let schemaVersion = 1
-    /// 单次查询页大小；大照片库按 CKQueryOperation.Cursor 翻页。
+    /// 单次变更拉取页大小；大照片库按 CloudKit change token 翻页。
     static let pageSize = 100
 
     static let itemID: CKRecord.FieldKey = "itemID"
@@ -72,7 +76,7 @@ enum VaultSyncField {
     static let media: CKRecord.FieldKey = "media"
     static let pairedVideo: CKRecord.FieldKey = "pairedVideo"
 
-    /// 全量查询只要元数据；CKAsset 留到确定要下载时才按 recordID 单独取。
+    /// 全量拉取只要元数据；CKAsset 留到确定要下载时才按 recordID 单独取。
     static let metadataKeys: [CKRecord.FieldKey] = [
         itemID, fileName, mediaKindRaw, byteSize, capturedAt, addedAt,
         albumNames, hasPairedVideo, isDeleted, schemaVersionKey, modifiedAt, originDevice
@@ -87,6 +91,7 @@ enum VaultSyncField {
 /// 开关与同步元数据的持久化 key。开关由设置页 `@AppStorage` 写入，引擎只读。
 enum VaultSyncPreference {
     static let enabledKey = "vault.iCloudSyncEnabled"
+    static let welcomeNetworkPermissionKey = "onboarding.permissionsRequested"
     static let tombstonesKey = "vault.sync.tombstoneIDs"
     static let lastSyncKey = "vault.sync.lastSyncDate"
 

@@ -30,6 +30,7 @@ struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(StatisticsService.self) private var statistics
     @Environment(VaultSyncEngine.self) private var vaultSync
+    @Environment(SoundService.self) private var sound
     @Environment(\.dismiss) private var dismiss
 
     private let initialRoute: SettingsRoute?
@@ -39,6 +40,7 @@ struct SettingsView: View {
     private let thumbnails: ThumbnailProvider
     private let onWakeSnoozed: (String) -> Void
     private let onWakeAllSnoozed: () -> Void
+    private let onResetFirstVisit: () -> Void
 
     @State private var path: [SettingsRoute] = []
     @State private var didApplyInitialRoute = false
@@ -47,6 +49,8 @@ struct SettingsView: View {
     @State private var isVaultResetPresented = false
     @State private var isSnoozeListPresented = false
     @State private var isVIPPurchasePresented = false
+    @State private var previewMachine: MachineKind?
+    @State private var previewTrigger = 0
     @AppStorage(VaultAutoLock.defaultsKey) private var autoLockSeconds = VaultAutoLock.immediate.rawValue
     @AppStorage(TaskPolicy.batchSizeKey) private var batchSize = TaskPolicy.batchSize
     @AppStorage(VaultSyncPreference.enabledKey) private var syncEnabled = false
@@ -57,7 +61,8 @@ struct SettingsView: View {
         snooze: SnoozeStore,
         thumbnails: ThumbnailProvider,
         onWakeSnoozed: @escaping (String) -> Void,
-        onWakeAllSnoozed: @escaping () -> Void
+        onWakeAllSnoozed: @escaping () -> Void,
+        onResetFirstVisit: @escaping () -> Void = {}
     ) {
         self.initialRoute = initialRoute
         self._requestedRoute = requestedRoute
@@ -65,6 +70,7 @@ struct SettingsView: View {
         self.thumbnails = thumbnails
         self.onWakeSnoozed = onWakeSnoozed
         self.onWakeAllSnoozed = onWakeAllSnoozed
+        self.onResetFirstVisit = onResetFirstVisit
     }
 
     var body: some View {
@@ -281,13 +287,13 @@ struct SettingsView: View {
 
     // MARK: - 主模块组
 
-    /// 外观 / 销毁道具 / 统计 / 整理 / 延后 合并进同一个 Section。
-    /// 模块标识行用 3D 图标，其余控件行统一走 `settingsRowIndent()`；
-    /// 「统计」「整理批次」「延后」各自压成一行，副标题显示当前摘要 / 设置 / 数量。
+    /// 外观与销毁道具选择器组成一个紧凑分组，仅用一条分隔线区分；
+    /// 「统计」「整理批次」「延后」各自压成一行。
     private var mainSection: some View {
         Section {
-            appearanceRows
-            deviceRows
+            selectorRows
+            Toggle("音效".localized, isOn: soundBinding)
+                .settingsRowIndent()
             statisticsRows
             taskRows
             snoozeRows
@@ -296,59 +302,81 @@ struct SettingsView: View {
 
     // MARK: - 外观
 
-    @ViewBuilder
-    private var appearanceRows: some View {
-        moduleRow(icon: "icon_config_ui", title: "外观和交互".localized)
+    private var selectorRows: some View {
+        VStack(spacing: Theme.Spacing.md) {
+            HStack(alignment: .top, spacing: Theme.Spacing.md) {
+                configIcon("icon_config_ui")
+                    .padding(.top, 2)
 
-        Picker("显示模式".localized, selection: displayModeBinding) {
-            ForEach(DisplayMode.allCases) { mode in
-                Text(mode.title).tag(mode)
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    Text("外观和交互".localized)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+
+                    Picker("显示模式".localized, selection: displayModeBinding) {
+                        ForEach(DisplayMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+                .overlay(Theme.Text.tertiary.opacity(0.2))
+                .padding(.leading, SettingsLayout.rowIndent)
+
+            HStack(alignment: .top, spacing: Theme.Spacing.md) {
+                configIcon("icon_config_destory")
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    Text("销毁道具".localized)
+                        .font(Theme.Typography.body)
+                        .foregroundStyle(Theme.Text.primary)
+
+                    DevicePickerStrip(
+                        selection: settings.destroyMachine,
+                        isVIP: entitlements.isVIP,
+                        onSelect: selectMachine
+                    )
+                    if let previewMachine {
+                        DevicePreviewInline(
+                            machine: previewMachine,
+                            trigger: previewTrigger,
+                            onClose: { self.previewMachine = nil }
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .pickerStyle(.segmented)
-        .settingsRowIndent()
-
-//        Toggle("高对比度".localized, isOn: highContrastBinding)
-//            .settingsRowIndent()
-//
-//        Toggle("降低动效".localized, isOn: reduceMotionBinding)
-//            .settingsRowIndent()
-
-        Toggle("音效".localized, isOn: soundBinding)
-            .settingsRowIndent()
+        .padding(.vertical, Theme.Spacing.xs)
+        .listRowSeparator(.hidden)
     }
 
     private var displayModeBinding: Binding<DisplayMode> {
         Binding(get: { settings.displayMode }, set: { settings.displayMode = $0 })
     }
 
-    private var highContrastBinding: Binding<Bool> {
-        Binding(get: { settings.highContrast }, set: { settings.highContrast = $0 })
-    }
-
-    private var reduceMotionBinding: Binding<Bool> {
-        Binding(get: { settings.reduceMotion }, set: { settings.reduceMotion = $0 })
-    }
-
     private var soundBinding: Binding<Bool> {
         Binding(get: { settings.soundEnabled }, set: { settings.soundEnabled = $0 })
     }
 
-    // MARK: - 销毁道具
-
-    /// 底部道具的直选入口，与首页「轻点循环切换」共用 AppSettings.destroyMachine。
-    @ViewBuilder
-    private var deviceRows: some View {
-        moduleRow(icon: "icon_config_destory", title: "销毁道具".localized)
-
-        DevicePickerStrip(selection: settings.destroyMachine, isVIP: entitlements.isVIP) { machine in
-            guard entitlements.isVIP || machine == .wasteBasket else {
-                isVIPPurchasePresented = true
-                return
-            }
-            settings.destroyMachine = machine
+    private func selectMachine(_ machine: MachineKind) {
+        guard entitlements.isVIP || machine == .wasteBasket else {
+            isVIPPurchasePresented = true
+            return
         }
-        .settingsRowIndent()
+        settings.destroyMachine = machine
+        sound.play(device: machine)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            previewMachine = machine
+            previewTrigger += 1
+        }
     }
 
     // MARK: - 整理
@@ -735,6 +763,12 @@ struct SettingsView: View {
                 simulationButton(title: "VIP".localized, tier: .vip)
             }
             .settingsRowIndent()
+
+            Button("清空首次访问标识".localized) {
+                onResetFirstVisit()
+                dismiss()
+            }
+            .settingsRowIndent()
         } header: {
             Text("开发工具".localized)
         }
@@ -757,6 +791,61 @@ struct SettingsView: View {
     #endif
 }
 
+private struct DevicePreviewInline: View {
+    let machine: MachineKind
+    let trigger: Int
+    let onClose: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.appReduceMotion) private var appReduceMotion
+    @State private var shakeToken = 0
+    @State private var switchToken = 0
+
+    private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
+
+    var body: some View {
+        VStack(spacing: Theme.Spacing.xs) {
+            HStack {
+                Text("道具试听：%@".localized(machine.displayName))
+                    .font(Theme.Typography.caption.weight(.semibold))
+                    .foregroundStyle(Theme.Text.secondary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.Text.tertiary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭".localized)
+            }
+            DestroyDock(
+                pendingCount: 1,
+                shakeToken: shakeToken,
+                machine: machine,
+                switchToken: switchToken,
+                onSwitch: {}
+            )
+            .frame(height: 100)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .padding(.top, Theme.Spacing.xs)
+        .onAppear(perform: triggerAnimation)
+        .onChange(of: trigger) { _, _ in
+            triggerAnimation()
+        }
+    }
+
+    private func triggerAnimation() {
+        withAnimation(Theme.Motion.animation(.spring, reduceMotion: reduceMotion)) {
+            shakeToken += 1
+            switchToken += 1
+        }
+    }
+}
+
 #Preview {
     SettingsView(
         snooze: SnoozeStore(),
@@ -769,4 +858,5 @@ struct SettingsView: View {
     .environment(AppSettings())
     .environment(StatisticsService())
     .environment(VaultSyncEngine())
+    .environment(SoundService())
 }

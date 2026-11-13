@@ -7,12 +7,13 @@ import SwiftUI
 /// 进入每一页时按「图片 → 文案 → 按钮」的顺序依次浮现。
 /// 配色全部走 `Theme` 自适应 token，跟随系统明暗模式。
 struct OnboardingView: View {
+    let onRequestAccess: () async -> Void
     let onFinish: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.appReduceMotion) private var appReduceMotion
     @State private var page = 0
-    @State private var isAuthorizing = false
+    @State private var isRequestingAccess = false
 
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
 
@@ -84,7 +85,7 @@ struct OnboardingView: View {
 
     private var header: some View {
         HStack {
-            Text("SuperPhotos")
+            Text("Welcome")
                 .font(Theme.Typography.caption.weight(.semibold))
                 .foregroundStyle(Theme.Text.tertiary)
 
@@ -106,17 +107,13 @@ struct OnboardingView: View {
         if index < pages.count - 1 {
             page = index + 1
         } else {
-            authorizeAndFinish()
-        }
-    }
-
-    private func authorizeAndFinish() {
-        guard !isAuthorizing else { return }
-        isAuthorizing = true
-        Task {
-            _ = await AuthorizationService().requestAccess()
-            isAuthorizing = false
-            onFinish()
+            guard !isRequestingAccess else { return }
+            isRequestingAccess = true
+            Task {
+                await onRequestAccess()
+                isRequestingAccess = false
+                onFinish()
+            }
         }
     }
 
@@ -224,5 +221,5 @@ private struct OnboardingPage {
 }
 
 #Preview {
-    OnboardingView {}
+    OnboardingView(onRequestAccess: {}, onFinish: {})
 }

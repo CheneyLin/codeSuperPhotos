@@ -148,9 +148,6 @@
 "这一批已经处理完" = "This batch is all done.";
 "正在统一加密与删除，请稍候" = "Encrypting and deleting, please wait.";
 "延后 %@ 天" = "Snooze %@ days";
-"SuperPhotos 需要读取相簿" = "SuperPhotos needs access to your library";
-"只在本机浏览与整理照片，不上传、不联网。" = "Browse and clean up photos on-device only. Nothing is uploaded.";
-"允许访问相簿" = "Allow Library Access";
 "没有访问相簿的权限" = "No library access";
 "请在系统设置中允许 SuperPhotos 访问照片，之后回到这里即可继续。" = "Allow SuperPhotos to access photos in Settings, then come back here to continue.";
 "去系统设置" = "Open Settings";
@@ -303,6 +300,7 @@
 "购买 VIP，%@" = "Buy VIP, %@";
 "设计系统预览" = "Design System Preview";
 "非 VIP" = "Non-VIP";
+"道具试听：%@" = "Preview: %@";
 "VIP 权益" = "VIP Benefits";
 "购买提示" = "Purchase Notice";
 "已购买，VIP 永久有效：实况照片与视频、不限容量、完整统计周期等权益全部可用。" = "Purchased — VIP is permanent: Live Photos and videos, unlimited capacity, all statistics periods, and more are unlocked.";
@@ -468,7 +466,8 @@
 "尚未登录 iCloud，请在系统设置登录 Apple ID。" = "iCloud isn't signed in. Please sign in with your Apple ID in Settings.";
 "网络不可用，请联网后重试。" = "No network available. Please reconnect and try again.";
 "iCloud 储存空间不足，请清理后重试。" = "Not enough iCloud storage. Please free up space and try again.";
-"iCloud 权限未就绪：请在 App Store Connect 为 App ID 启用 iCloud / CloudKit 能力。" = "iCloud isn't ready: enable the iCloud / CloudKit capability for your App ID in App Store Connect.";
+"CloudKit 拒绝访问：%@。请确认 App ID 已启用 CloudKit，并分配了此容器。" = "CloudKit denied access: %@. Verify that CloudKit is enabled for the App ID and this container is assigned.";
+"CloudKit 请求参数无效：%@。" = "CloudKit rejected the request parameters: %@.";
 "CloudKit 容器尚未就绪，请确认 iCloud.com.gpwzw.appSuperPhotos 已创建。" = "The CloudKit container isn't ready. Make sure iCloud.com.gpwzw.appSuperPhotos has been created.";
 "iCloud 暂时繁忙，请稍后重试。" = "iCloud is busy right now. Please try again later.";
 "内容密钥不可用" = "Content key unavailable";
@@ -496,3 +495,4 @@
 "一切在本机完成，你的照片只属于你" = "Everything happens on your device. Your photos belong only to you.";
 "继续" = "Continue";
 "立即授权开始" = "Authorize & Start";
+"清空首次访问标识" = "Reset first-launch flag";

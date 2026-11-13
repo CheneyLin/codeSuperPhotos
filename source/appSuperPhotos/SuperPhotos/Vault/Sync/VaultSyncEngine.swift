@@ -55,7 +55,16 @@ final class VaultSyncEngine {
         vault.syncHooks.onRecordsDeleted = { [weak self] ids in self?.noteLocalDeletion(ids) }
 
         refreshGate()
-        if VaultSyncPreference.isEnabled { scheduleSync(delay: .seconds(1)) }
+        if VaultSyncPreference.isEnabled, networkRequestsAllowed {
+            scheduleSync(delay: .seconds(1))
+        }
+    }
+
+    /// CloudKit 首次访问可能触发系统 iCloud 确认；只在欢迎页按钮点击后允许联网。
+    func allowNetworkRequestsAfterWelcome() {
+        UserDefaults.standard.set(true, forKey: VaultSyncPreference.welcomeNetworkPermissionKey)
+        guard VaultSyncPreference.isEnabled, entitlements?.isVIP == true else { return }
+        scheduleSync(delay: .milliseconds(400))
     }
 
     /// 设置页开关变化 / VIP 状态变化后调用。
@@ -65,13 +74,15 @@ final class VaultSyncEngine {
         // 不强制改 isSyncing：正在进行的 CloudKit 调用会自行收尾，
         // 各循环入口检查开关 / 取消状态后立即停止上传下载。
         refreshGate()
-        guard VaultSyncPreference.isEnabled, phase == .ready else { return }
+        guard VaultSyncPreference.isEnabled, networkRequestsAllowed, phase == .ready else { return }
         scheduleSync(delay: .milliseconds(400))
     }
 
     /// App 回到前台：拉一次其它设备的变更。
     func didEnterForeground() {
-        guard VaultSyncPreference.isEnabled, entitlements?.isVIP == true else {
+        guard VaultSyncPreference.isEnabled,
+              networkRequestsAllowed,
+              entitlements?.isVIP == true else {
             refreshGate()
             return
         }
@@ -167,9 +178,14 @@ final class VaultSyncEngine {
         set { UserDefaults.standard.set(Array(newValue), forKey: VaultSyncPreference.tombstonesKey) }
     }
 
+    private var networkRequestsAllowed: Bool {
+        UserDefaults.standard.bool(forKey: VaultSyncPreference.welcomeNetworkPermissionKey)
+    }
+
     // MARK: - 同步主流程
 
     private func runSync() async {
+        guard networkRequestsAllowed else { refreshGate(); return }
         guard VaultSyncPreference.isEnabled else { refreshGate(); return }
         guard entitlements?.isVIP == true else { phase = .vipRequired; return }
         guard !isSyncing else {
@@ -204,6 +220,7 @@ final class VaultSyncEngine {
                 return
             }
 
+            try await ensureSyncZone()
             let tombstonesBefore = tombstoneSet
             var remote = try await fetchRemoteMetadata()
             try await applyTombstones(to: &remote)
@@ -234,6 +251,9 @@ final class VaultSyncEngine {
         } catch is CancellationError {
             phase = VaultSyncPreference.isEnabled ? .ready : .off
         } catch {
+            #if DEBUG
+            print("[VaultSync] Sync failed: \(String(reflecting: error))")
+            #endif
             let message = Self.describe(error)
             errorMessage = message
             phase = .failure(message)
@@ -252,46 +272,36 @@ final class VaultSyncEngine {
         }
     }
 
-    /// 拉取云端全部元数据（不含 CKAsset）。首次同步时记录类型还不存在，
-    /// CloudKit 会返回 unknownItem，此时按「空库」处理，随后由 push 创建。
-    private func fetchRemoteMetadata() async throws -> [CKRecord] {
-        let query = CKQuery(
-            recordType: VaultSyncField.recordType,
-            predicate: NSPredicate(value: true)
+    private func ensureSyncZone() async throws {
+        _ = try await database.modifyRecordZones(
+            saving: [CKRecordZone(zoneID: VaultSyncField.zoneID)],
+            deleting: []
         )
-        var all: [CKRecord] = []
-        var cursor: CKQueryOperation.Cursor?
-        var pageCount = 0
+    }
 
-        do {
-            repeat {
-                let page: (
-                    matchResults: [(CKRecord.ID, Result<CKRecord, Error>)],
-                    queryCursor: CKQueryOperation.Cursor?
-                )
-                if let cursor {
-                    page = try await database.records(
-                        continuingMatchFrom: cursor,
-                        desiredKeys: VaultSyncField.metadataKeys,
-                        resultsLimit: VaultSyncField.pageSize
-                    )
-                } else {
-                    page = try await database.records(
-                        matching: query,
-                        inZoneWith: nil,
-                        desiredKeys: VaultSyncField.metadataKeys,
-                        resultsLimit: VaultSyncField.pageSize
-                    )
+    /// 从自定义区读取完整元数据快照，不依赖 CloudKit 查询索引。
+    private func fetchRemoteMetadata() async throws -> [CKRecord] {
+        var all: [CKRecord] = []
+        var changeToken: CKServerChangeToken?
+        var moreComing: Bool
+        repeat {
+            let page = try await database.recordZoneChanges(
+                inZoneWith: VaultSyncField.zoneID,
+                since: changeToken,
+                desiredKeys: VaultSyncField.metadataKeys,
+                resultsLimit: VaultSyncField.pageSize
+            )
+            for result in page.modificationResultsByID.values {
+                switch result {
+                case .success(let modification):
+                    all.append(modification.record)
+                case .failure(let error):
+                    throw error
                 }
-                for (_, result) in page.matchResults {
-                    if case .success(let record) = result { all.append(record) }
-                }
-                cursor = page.queryCursor
-                pageCount += 1
-            } while cursor != nil && pageCount < 50
-        } catch let error as CKError where error.code == .unknownItem {
-            return []
-        }
+            }
+            changeToken = page.changeToken
+            moreComing = page.moreComing
+        } while moreComing
         return all
     }
 
@@ -348,7 +358,7 @@ final class VaultSyncEngine {
             guard !tombstones.contains(item.id.uuidString),
                   !vault.containsRecord(id: item.id) else { continue }
 
-            let recordID = CKRecord.ID(recordName: item.recordName)
+            let recordID = CKRecord.ID(recordName: item.recordName, zoneID: VaultSyncField.zoneID)
             let results = try await database.records(for: [recordID], desiredKeys: nil)
             guard let result = results[recordID],
                   case .success(let full) = result,
@@ -386,7 +396,10 @@ final class VaultSyncEngine {
     private static func makeRecord(for item: VaultSyncItem, existing: CKRecord?) -> CKRecord {
         let record = existing ?? CKRecord(
             recordType: VaultSyncField.recordType,
-            recordID: CKRecord.ID(recordName: VaultSyncField.recordName(for: item.id))
+            recordID: CKRecord.ID(
+                recordName: VaultSyncField.recordName(for: item.id),
+                zoneID: VaultSyncField.zoneID
+            )
         )
         record[VaultSyncField.itemID] = item.id.uuidString as NSString
         record[VaultSyncField.fileName] = item.fileName as NSString
@@ -394,7 +407,7 @@ final class VaultSyncEngine {
         record[VaultSyncField.byteSize] = NSNumber(value: item.byteSize)
         record[VaultSyncField.capturedAt] = item.capturedAt.map { $0 as NSDate }
         record[VaultSyncField.addedAt] = item.addedAt as NSDate
-        record[VaultSyncField.albumNames] = item.albumNames as NSArray
+        record[VaultSyncField.albumNames] = item.albumNames.isEmpty ? nil : item.albumNames as NSArray
         record[VaultSyncField.hasPairedVideo] = NSNumber(value: item.hasPairedVideo)
         record[VaultSyncField.isDeleted] = NSNumber(value: false)
         record[VaultSyncField.schemaVersionKey] = NSNumber(value: schemaVersion)
@@ -428,8 +441,12 @@ final class VaultSyncEngine {
             return "网络不可用，请联网后重试。".localized
         case .quotaExceeded:
             return "iCloud 储存空间不足，请清理后重试。".localized
-        case .permissionFailure, .invalidArguments:
-            return "iCloud 权限未就绪：请在 App Store Connect 为 App ID 启用 iCloud / CloudKit 能力。".localized
+        case .permissionFailure:
+            return "CloudKit 拒绝访问：%@。请确认 App ID 已启用 CloudKit，并分配了此容器。".localized(
+                ckError.localizedDescription
+            )
+        case .invalidArguments:
+            return "CloudKit 请求参数无效：%@。".localized(ckError.localizedDescription)
         case .unknownItem:
             return "CloudKit 容器尚未就绪，请确认 iCloud.com.gpwzw.appSuperPhotos 已创建。".localized
         case .serviceUnavailable, .zoneBusy, .requestRateLimited:

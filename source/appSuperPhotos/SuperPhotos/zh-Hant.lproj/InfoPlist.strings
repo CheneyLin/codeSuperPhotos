@@ -1,5 +1,5 @@
 /* SuperPhotos — 繁體中文 */
-"CFBundleDisplayName" = "SuperPhotos";
-"CFBundleName" = "SuperPhotos";
+"CFBundleDisplayName" = "相冊整理王";
+"CFBundleName" = "相冊整理王";
 "NSPhotoLibraryUsageDescription" = "SuperPhotos 需要存取你的相簿，以便瀏覽、整理照片，並把照片存入保險箱。";
 "NSPhotoLibraryAddUsageDescription" = "用於把保險箱中的照片還原到相簿。";

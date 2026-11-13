@@ -15,6 +15,7 @@ final class WorkspacePresentation {
 }
 
 struct HomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(VaultStore.self) private var vault
     @Environment(StatisticsService.self) private var statistics
@@ -30,6 +31,7 @@ struct HomeView: View {
     private var reduceMotion: Bool { systemReduceMotion || appReduceMotion }
 
     @State private var library = LibraryService()
+    @State private var hasCompletedInitialLibraryLoad = false
     @State private var albumService = AlbumService()
     /// 任务式整理：一次最多 100 张，进度与决策持久化。
     @State private var task = CleaningTaskStore()
@@ -44,8 +46,10 @@ struct HomeView: View {
     @State private var isDesignSystemPresented = false
     @State private var isVIPPurchasePresented = false
     @AppStorage("onboarding.completed") private var hasCompletedOnboarding = false
+    @AppStorage("onboarding.permissionsRequested") private var hasRequestedWelcomePermissions = false
     @State private var isOnboardingPresented = false
     @State private var isRequestingAccess = false
+    @State private var isPhotoPermissionAlertPresented = false
     @State private var isAlbumsDrawerPresented = false
 
     @State private var isVaultPresented = false
@@ -91,25 +95,8 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                if library.accessState.canBrowse {
-                    SceneryBackgroundView()
-                } else {
-                    Theme.Surface.base.ignoresSafeArea()
-                }
-
-                switch library.accessState {
-                case .notDetermined:
-                    PermissionIntroView(isRequesting: isRequestingAccess) {
-                        requestAccess()
-                    }
-                case .denied:
-                    PermissionDeniedView {
-                        library.openSettings()
-                    }
-                case .authorized, .limited:
-                    // 首屏不再独立成页：桌面状态就是三栏场景里的中央区域。
-                    taskWorkspace
-                }
+                SceneryBackgroundView()
+                taskWorkspace
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 headerBar
@@ -124,6 +111,9 @@ struct HomeView: View {
             .navigationBarHidden(true)
             .sheet(isPresented: $isSettingsPresented, onDismiss: {
                 settingsInitialRoute = nil
+                if !hasCompletedOnboarding {
+                    isOnboardingPresented = true
+                }
             }) {
                 SettingsView(
                     initialRoute: settingsInitialRoute,
@@ -131,7 +121,11 @@ struct HomeView: View {
                     snooze: snooze,
                     thumbnails: library.thumbnails,
                     onWakeSnoozed: { id in wakeUpSnoozed(id: id) },
-                    onWakeAllSnoozed: { wakeAllSnoozed() }
+                    onWakeAllSnoozed: { wakeAllSnoozed() },
+                    onResetFirstVisit: {
+                        hasCompletedOnboarding = false
+                        hasRequestedWelcomePermissions = false
+                    }
                 )
                 // sheet 显式传递，避免不同 iOS 版本对 environment 继承的差异。
                 .environment(vaultSync)
@@ -186,7 +180,11 @@ struct HomeView: View {
                 )
             }
             .fullScreenCover(isPresented: $isOnboardingPresented) {
-                OnboardingView {
+                OnboardingView(onRequestAccess: {
+                    await requestPhotoLibraryAccess()
+                    hasRequestedWelcomePermissions = true
+                    vaultSync.allowNetworkRequestsAfterWelcome()
+                }) {
                     hasCompletedOnboarding = true
                     isOnboardingPresented = false
                 }
@@ -195,10 +193,13 @@ struct HomeView: View {
                 library.excludedLocalIDs = vault.originLocalIDs
                 albumService.excludedLocalIDs = vault.originLocalIDs
                 await library.start()
-                await albumService.load()
-                syncDefaultAlbum()
-                restoreTaskIfNeeded()
-                clampCurrentID()
+                hasCompletedInitialLibraryLoad = true
+                if library.accessState.canBrowse {
+                    await albumService.load()
+                    syncDefaultAlbum()
+                    restoreTaskIfNeeded()
+                    clampCurrentID()
+                }
                 presentOnboardingIfNeeded()
                 await runUITestHooksIfNeeded()
             }
@@ -224,17 +225,27 @@ struct HomeView: View {
                     clampCurrentID()
                     // 授权范围变化（首次授权 / 受限 → 完整）后按新的可见集合重算。
                     Task { await albumService.load(force: true) }
-                    if !hasCompletedOnboarding {
-                        #if DEBUG
-                        // 回归时强制授权会把状态从 notDetermined 推过来，
-                        // 没走正常首启流程，不要让引导盖住工作区。
-                        if ProcessInfo.processInfo.environment["UI_TEST_ONBOARDING_DONE"] == "1" {
-                            return
-                        }
-                        #endif
-                        isOnboardingPresented = true
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active, hasCompletedInitialLibraryLoad else { return }
+                Task {
+                    await library.start()
+                    if library.accessState.canBrowse {
+                        await albumService.load(force: true)
+                        syncDefaultAlbum()
+                        restoreTaskIfNeeded()
+                        clampCurrentID()
                     }
                 }
+            }
+            .alert("没有访问相簿的权限".localized, isPresented: $isPhotoPermissionAlertPresented) {
+                Button("去系统设置".localized) {
+                    library.openSettings()
+                }
+                Button("取消".localized, role: .cancel) {}
+            } message: {
+                Text("请在系统设置中允许 SuperPhotos 访问照片，之后回到这里即可继续。".localized)
             }
             .onChange(of: library.revision) { _, _ in
                 clampCurrentID()
@@ -446,7 +457,7 @@ struct HomeView: View {
             processed: task.processedCount,
             total: task.totalCount,
             pendingDestroy: task.destroyCount,
-            onStart: { isAlbumPickerPresented = true },
+            onStart: { startButtonTapped() },
             onResume: { enterWorkspace() },
             onFinishNow: { finishTaskNow() }
         )
@@ -877,7 +888,7 @@ struct HomeView: View {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UI_TEST_ONBOARDING_DONE"] == "1" { return }
         #endif
-        guard !hasCompletedOnboarding, library.accessState.canBrowse else { return }
+        guard !hasCompletedOnboarding else { return }
         isOnboardingPresented = true
     }
 
@@ -909,15 +920,30 @@ struct HomeView: View {
 
     // MARK: - 动作
 
-    private func requestAccess() {
-        guard !isRequestingAccess else { return }
+    @discardableResult
+    private func requestPhotoLibraryAccess() async -> Bool {
+        guard !isRequestingAccess else { return false }
         isRequestingAccess = true
+        await library.requestAccess()
+        isRequestingAccess = false
+        restoreTaskIfNeeded()
+        clampCurrentID()
+        await albumService.load(force: true)
+        return library.accessState.canBrowse
+    }
+
+    private func startButtonTapped() {
+        guard !isRequestingAccess else { return }
+        guard !library.accessState.canBrowse else {
+            isAlbumPickerPresented = true
+            return
+        }
         Task {
-            await library.requestAccess()
-            isRequestingAccess = false
-            restoreTaskIfNeeded()
-            clampCurrentID()
-            await albumService.load(force: true)
+            if await requestPhotoLibraryAccess() {
+                isAlbumPickerPresented = true
+            } else {
+                isPhotoPermissionAlertPresented = true
+            }
         }
     }
 
@@ -995,6 +1021,10 @@ struct HomeView: View {
     }
 
     private func enterWorkspace() {
+        guard library.accessState.canBrowse else {
+            startButtonTapped()
+            return
+        }
         hitDebugNote("resume active=\(task.isActive) finished=\(task.isFinished) remaining=\(task.remainingItems.count)")
         guard task.isActive else {
             isAlbumPickerPresented = true
