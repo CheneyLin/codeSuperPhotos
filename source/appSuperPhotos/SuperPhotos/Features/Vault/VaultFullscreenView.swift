@@ -375,7 +375,7 @@ private struct VaultStillImage: View {
         .task(id: record.id) {
             failed = false
             image = nil
-            loadingText = vault.encryptionMode == .strong ? "正在解密…".localized : "正在读取…".localized
+            loadingText = "正在读取…".localized
 
             guard let media = try? await vault.prepareMedia(for: record) else {
                 failed = true
@@ -452,7 +452,7 @@ private struct VaultLivePhotoDisplay: View {
             livePhoto = nil
             prepared?.cleanup()
             prepared = nil
-            loadingText = vault.encryptionMode == .strong ? "正在解密…".localized : "正在读取…".localized
+            loadingText = "正在读取…".localized
 
             guard let media = try? await vault.prepareMedia(for: record),
                   let videoURL = media.videoURL else {
@@ -544,7 +544,7 @@ private struct VaultVideoPlayer: View {
             player = nil
             prepared?.cleanup()
             prepared = nil
-            loadingText = vault.encryptionMode == .strong ? "正在解密…".localized : "正在读取…".localized
+            loadingText = "正在读取…".localized
 
             guard let media = try? await vault.prepareMedia(for: record) else {
                 failed = true

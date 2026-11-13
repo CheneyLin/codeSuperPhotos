@@ -7,7 +7,7 @@ import SwiftUI
 import UIKit
 
 /// 读取保险箱内容后交给界面使用的本地文件。
-/// 标准档直接指向原文件；强加密档指向解密出的临时文件，用完必须 `cleanup()`。
+/// 普通文件直接指向原文件；旧版加密文件指向解密出的临时文件，用完必须 `cleanup()`。
 struct VaultPreparedMedia {
     let imageURL: URL
     let videoURL: URL?
@@ -32,7 +32,7 @@ final class VaultStore {
         case notConfigured
     }
 
-    /// 只写入加密副本的阶段结果；不包含任何删除动作。
+    /// 只写入副本的阶段结果；不包含任何删除动作。
     /// 原件删除由任务结算把保险箱与废纸篓合并后一次提交（系统只确认一次）。
     struct StagedImport {
         var records: [VaultRecord] = []
@@ -79,22 +79,27 @@ final class VaultStore {
         reload()
     }
 
-    /// 当前内容保护档位；只影响之后写入的文件。
-    var encryptionMode: VaultEncryptionMode { VaultEncryptionMode.current }
-
     // MARK: - 清单
 
-    func reload() {
+    func reload(notifySync: Bool = true) {
         let descriptor = FetchDescriptor<VaultRecord>(
             sortBy: [SortDescriptor(\.addedAt, order: .reverse)]
         )
         records = (try? context.fetch(descriptor)) ?? []
         totalBytes = records.reduce(0) { $0 + $1.byteSize }
         revision += 1
-        syncHooks.onRecordsChanged?()
+        if notifySync {
+            syncHooks.onRecordsChanged?()
+        }
     }
 
     var usedItems: Int { records.count }
+
+    var legacyEncryptedItemCount: Int {
+        records.filter { record in
+            VaultCrypto.isEncryptedFile(at: Paths.vaultFileURL(relativePath: record.relativePath))
+        }.count
+    }
 
     var originLocalIDs: Set<String> {
         Set(records.compactMap(\.originLocalID))
@@ -106,7 +111,7 @@ final class VaultStore {
         VaultLockPolicy.status()
     }
 
-    /// 按当前存储模式取缩略图：标准档直接解码，强加密档先解密到临时文件再解码。
+    /// 普通文件直接解码；旧版加密文件先解密到临时文件再解码。
     func thumbnailAsync(for record: VaultRecord, maxPixel: CGFloat = 240) async -> UIImage? {
         let key = record.id.uuidString as NSString
         if let cached = thumbnailCache.object(forKey: key) { return cached }
@@ -124,7 +129,7 @@ final class VaultStore {
     }
 
     /// 统一读取路径：网格与全屏都拿到可直接交给 ImageIO / AVPlayer 的本地 URL。
-    /// 强加密档返回解密出的临时文件，调用方用完必须 `cleanup()`。
+    /// 旧版加密文件返回解密出的临时文件，调用方用完必须 `cleanup()`。
     func prepareMedia(for record: VaultRecord) async throws -> VaultPreparedMedia {
         let primaryURL = Paths.vaultFileURL(relativePath: record.relativePath)
         guard FileManager.default.fileExists(atPath: primaryURL.path) else {
@@ -132,8 +137,7 @@ final class VaultStore {
         }
         let pairedURL = record.pairedVideoPath.map { Paths.vaultFileURL(relativePath: $0) }
 
-        // 按文件头判断，而不是按「当前档位」：切换过内容保护档位、或从另一台
-        // 设备同步下来的标准档明文文件，都能被正确读取，不会被误当成密文解密。
+        // 按文件头识别旧版密文，避免普通文件被误当成密文解密。
         guard VaultCrypto.isEncryptedFile(at: primaryURL) else {
             return VaultPreparedMedia(
                 imageURL: primaryURL,
@@ -144,7 +148,7 @@ final class VaultStore {
 
         let key: SymmetricKey
         do {
-            key = try VaultCrypto.contentKey(createIfNeeded: false)
+            key = try VaultCrypto.contentKey()
         } catch {
             throw VaultCryptoError.keyUnavailable
         }
@@ -266,7 +270,7 @@ final class VaultStore {
 
     // MARK: - 入库
 
-    /// 只写加密副本，不删除原件。返回本次成功写入的记录，供任务结算统一提交删除。
+    /// 只写入副本，不删除原件。返回本次成功写入的记录，供任务结算统一提交删除。
     func stageAssets(
         localIDs: [String],
         kinds: [String: MediaKind],
@@ -347,29 +351,6 @@ final class VaultStore {
                 staged.messages.append(quota.message ?? "超出保险箱额度".localized)
                 staged.failed += 1
                 continue
-            }
-
-            // 强加密档：文件落盘后立刻原地加密；失败则整条回滚，不留下半加密文件。
-            if encryptionMode == .strong {
-                do {
-                    let key = try VaultCrypto.contentKey()
-                    let primaryURL = Paths.vaultFileURL(relativePath: copied.relativePath)
-                    let pairedURL = copied.pairedVideoPath.map { Paths.vaultFileURL(relativePath: $0) }
-                    try await Task.detached(priority: .userInitiated) {
-                        try VaultCrypto.encryptFile(at: primaryURL, key: key)
-                        if let pairedURL {
-                            try VaultCrypto.encryptFile(at: pairedURL, key: key)
-                        }
-                    }.value
-                } catch {
-                    Paths.removeFile(atRelativePath: copied.relativePath)
-                    if let paired = copied.pairedVideoPath {
-                        Paths.removeFile(atRelativePath: paired)
-                    }
-                    staged.messages.append("强加密失败：%@".localized(error.localizedDescription))
-                    staged.failed += 1
-                    continue
-                }
             }
 
             let record = VaultRecord(
@@ -472,7 +453,7 @@ final class VaultStore {
         return summary
     }
 
-    /// 导出：强加密档导出解密后的临时副本；返回的目录由调用方在分享结束后清理。
+    /// 导出旧版加密文件时使用解密后的临时副本；返回的目录由调用方在分享结束后清理。
     func exportURLs(ids: [UUID]) async -> (urls: [URL], temporaryDirectories: [URL]) {
         var urls: [URL] = []
         var directories: [URL] = []
@@ -532,8 +513,7 @@ final class VaultStore {
         records.contains { $0.id == id }
     }
 
-    /// 可上传的条目：文件存在、且是标准档明文。
-    /// 强加密文件的内容密钥只在本机 Keychain，其它设备拿到也无法解密，直接跳过。
+    /// 可上传的条目：文件存在、且是普通明文。旧版加密文件依赖本机 Keychain 密钥，直接跳过。
     func syncableItems() -> [VaultSyncItem] {
         records.compactMap { record in
             let url = Paths.vaultFileURL(relativePath: record.relativePath)
@@ -635,7 +615,7 @@ final class VaultStore {
 
     // MARK: - 内部
 
-    /// 系统确认取消：删除刚写入的加密副本并清掉对应记录。
+    /// 系统确认取消：删除刚写入的副本并清掉对应记录。
     @discardableResult
     private func rollback(_ copiedRecords: [VaultRecord]) -> Int {
         guard !copiedRecords.isEmpty else { return 0 }

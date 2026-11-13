@@ -44,9 +44,11 @@ extension SettingsTip {
         message: "VIP 为一次性购买：确认后从 Apple ID 账户扣费一次，即可永久解锁下列权益，不会自动续订，也不会再次扣费。更换设备或重装后，点「恢复购买」即可免费找回，不会重复扣费。价格以 App Store 显示为准；购买与恢复均不影响本机照片与保险箱数据。".localized,
         comparison: [
             .init(title: "保险箱媒体类型".localized, free: "静态图片".localized, vip: "实况照片与视频".localized),
-            .init(title: "保险箱容量".localized, free: "60 件 · 2GB".localized, vip: "不限件数与空间".localized),
+            .init(title: "保险箱容量".localized, free: "1 件".localized, vip: "不限件数与空间".localized),
+            .init(title: "销毁道具".localized, free: "仅废纸篓".localized, vip: "五款道具".localized),
+            .init(title: "整理批次".localized, free: "固定每批 10 张".localized, vip: "每批 10–200 张可调".localized),
             .init(title: "保险箱 iCloud 同步".localized, free: "不可用".localized, vip: "可选开启（默认关闭）".localized),
-            .init(title: "整理统计".localized, free: "今日 · 本周 · 累计".localized, vip: "增加「本月」周期".localized)
+            .init(title: "整理统计".localized, free: "今日统计".localized, vip: "增加本周、本月与累计周期".localized)
         ],
         showsLegalLinks: true
     )
@@ -60,19 +62,19 @@ extension SettingsTip {
     static let device = SettingsTip(
         id: "device",
         title: "销毁道具".localized,
-        message: "桌面底部可轻点道具按顺序循环切换：废纸篓 → 碎纸机 → 壁炉 → 邮筒 → 任意门。每款道具都有独立的落入动效与音效，选择会保留到下次启动；统计按当时选中的道具分别计数。".localized
+        message: "免费版仅可使用默认废纸篓；VIP 可在五款销毁道具间切换。每款道具都有独立的落入动效与音效，统计按当时选中的道具分别计数。".localized
     )
 
     static let statistics = SettingsTip(
         id: "statistics",
         title: "统计".localized,
-        message: "免费版提供今日、本周、累计，以及五款道具各自的件数与占比；本月周期属于 VIP 权益。".localized
+        message: "免费版仅可查看今日统计；本周、本月与累计统计属于 VIP 权益。".localized
     )
 
     static let task = SettingsTip(
         id: "task",
         title: "整理".localized,
-        message: "只影响之后新建的批次；正在进行的任务按开始时的张数计算进度，中途修改不会改变分母。相簿不足时按实际张数开始。".localized
+        message: "免费版每批固定处理 10 张；VIP 可在设置中调整为每批 10–200 张。只影响之后新建的批次；正在进行的任务按开始时的张数计算进度。相簿不足时按实际张数开始。".localized
     )
 
     static let snooze = SettingsTip(
@@ -84,13 +86,7 @@ extension SettingsTip {
     static let vault = SettingsTip(
         id: "vault",
         title: "私密保险箱".localized,
-        message: "密码盘组合空间 30 × 60 = 1800 种（约 10.8 bit），能挡住随手翻看，挡不住有时间暴力尝试的人；已配合阶梯锁定。密码忘记后无法找回。\n\n内容保护：标准（默认）把文件以普通格式存放在 App 沙盒，只受 iOS 沙盒与系统文件保护，App 密码只保护界面访问，不做应用层加密；强加密才使用 AES-GCM 与仅存本机的 Keychain 内容密钥。两档文件都不进入 iCloud / iTunes 备份。\n\niCloud 同步（VIP、默认关闭）只同步标准档内容到你的 iCloud 私有数据库；强加密内容、密码与锁定状态始终只留在本机，每台设备各自设置密码。切换内容保护档位只影响之后存入的内容，已有条目按各自格式读取。".localized
-    )
-
-    static let debug = SettingsTip(
-        id: "debug",
-        title: "开发工具".localized,
-        message: "仅 Debug 构建可见。模拟销毁会完整走吸附、蓄力、动画与提示，但不调用系统删除。".localized
+        message: "密码盘组合空间 30 × 60 = 1800 种（约 10.8 bit），能挡住随手翻看，挡不住有时间暴力尝试的人；已配合阶梯锁定。密码忘记后无法找回。\n\n保险箱文件以普通格式存放在 App 沙盒，受 iOS 沙盒与系统文件保护；App 密码只保护界面访问，不提供独立的文件加密。旧版加密文件仍可在原设备上读取，但不会参与 iCloud 同步。\n\niCloud 同步为 VIP 功能且默认关闭，只同步标准文件到你的 iCloud 私有数据库；密码与锁定状态始终只留在本机，每台设备各自设置密码。".localized
     )
 }
 
@@ -121,13 +117,13 @@ extension WelcomeSlide {
               summary: "浅色 / 深色 / 高对比度，动效与音效随手调".localized,
               detail: SettingsTip.appearance.message, showsComparison: false, showsLegalLinks: false),
         .init(id: "device", iconName: "icon_config_destory", title: "销毁道具".localized,
-              summary: "五款道具各有独立动效，轻点即可切换".localized,
+              summary: "VIP 可切换五款销毁道具".localized,
               detail: SettingsTip.device.message, showsComparison: false, showsLegalLinks: false),
         .init(id: "statistics", iconName: "icon_config_data", title: "统计".localized,
               summary: "今日、本周、本月与累计，整理成果一目了然".localized,
               detail: SettingsTip.statistics.message, showsComparison: false, showsLegalLinks: false),
         .init(id: "task", iconName: "icon_config_batch", title: "整理批次".localized,
-              summary: "每批张数由你决定，10 到 200 张".localized,
+              summary: "免费版固定每批 10 张".localized,
               detail: SettingsTip.task.message, showsComparison: false, showsLegalLinks: false),
         .init(id: "snooze", iconName: "icon_config_later", title: "延后".localized,
               summary: "暂时不想处理的照片，先放一放".localized,

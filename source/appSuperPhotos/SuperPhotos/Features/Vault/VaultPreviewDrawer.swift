@@ -49,7 +49,7 @@ struct VaultPreviewDrawer: View {
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Accent.fire)
                 } else {
-                    Text("免费版：最多 60 件 / 2GB，仅静态图片".localized)
+                    Text("免费版：最多 1 件，仅静态图片".localized)
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Theme.Text.tertiary)
                 }

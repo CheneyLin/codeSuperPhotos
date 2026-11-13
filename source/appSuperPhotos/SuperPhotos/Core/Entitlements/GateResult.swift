@@ -11,6 +11,11 @@ enum GateResult: Equatable, Sendable {
         return false
     }
 
+    var requiresVIP: Bool {
+        if case .requiresVIP = self { return true }
+        return false
+    }
+
     var message: String? {
         switch self {
         case .allowed:

@@ -42,12 +42,20 @@ struct SuperPhotosApp: App {
                 .task {
                     // 启动时加载会员商品、校验已购项目，并常驻监听交易变化。
                     await entitlements.start()
+                    if !entitlements.isVIP {
+                        settings.destroyMachine = .wasteBasket
+                        UserDefaults.standard.set(false, forKey: VaultSyncPreference.enabledKey)
+                    }
                     vaultSync.start(vault: vault, entitlements: entitlements)
                 }
                 .onChange(of: settings.soundEnabled) { _, enabled in
                     sound.isEnabled = enabled
                 }
-                .onChange(of: entitlements.isVIP) { _, _ in
+                .onChange(of: entitlements.isVIP) { _, isVIP in
+                    if !isVIP {
+                        settings.destroyMachine = .wasteBasket
+                        UserDefaults.standard.set(false, forKey: VaultSyncPreference.enabledKey)
+                    }
                     // 购买 / 恢复 / 退款后重新判断「iCloud 同步」是否可用。
                     vaultSync.syncEnabledDidChange()
                 }

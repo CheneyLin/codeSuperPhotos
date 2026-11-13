@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 整理统计：今日 / 本周 / 本月（VIP）/ 累计。
+/// 整理统计：免费版仅开放今日；本周 / 本月 / 累计为 VIP 周期。
 struct StatisticsView: View {
     @Environment(StatisticsService.self) private var statistics
     @Environment(EntitlementStore.self) private var entitlements
@@ -44,9 +44,12 @@ struct StatisticsView: View {
         .alert("需要 VIP".localized, isPresented: $isVIPHintPresented) {
             Button("知道了".localized, role: .cancel) {}
         } message: {
-            Text("免费版提供今日、本周、累计与五款道具分布；本月统计属于 VIP 权益。可在「设置 → VIP」中一次性购买或恢复购买。".localized)
+            Text("免费版仅可查看今日统计；本周、本月与累计统计属于 VIP 权益。可在「设置 → VIP」中一次性购买或恢复购买。".localized)
         }
         .toast($toastMessage, topPadding: 8)
+        .onChange(of: entitlements.isVIP) { _, isVIP in
+            if !isVIP { period = .today }
+        }
         .task {
             #if DEBUG
             if let raw = ProcessInfo.processInfo.environment["UI_TEST_STATS_PERIOD"],
@@ -181,7 +184,7 @@ struct StatisticsView: View {
     // MARK: - 道具使用分布
 
     /// 五款道具的件数与占比对所有档位开放：这是「用了哪款道具」的客观记录，
-    /// 与 VIP 的「本月周期 / 趋势报告」不是同一类信息。
+    /// 道具分布随当前统计周期展示。
     private var preferenceCard: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             HStack {

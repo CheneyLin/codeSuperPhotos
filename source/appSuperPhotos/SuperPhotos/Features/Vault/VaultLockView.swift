@@ -176,7 +176,7 @@ struct VaultLockView: View {
         } else if let errorText {
             message = errorText
             tone = Theme.State.danger
-        } else if left == 0, right == 0 {
+        } else if left == 0, right == 0, mode == .setupFirst {
             message = "0 + 0 不可作为密码，请转动密码盘设置组合".localized
             tone = Theme.State.warning
         } else {

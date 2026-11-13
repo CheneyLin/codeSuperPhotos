@@ -2,7 +2,7 @@ import Foundation
 
 /// 保险箱的免费额度与门禁规则，集中在一处，避免散落在页面里。
 enum VaultLimits {
-    static let freeItemLimit = 60
+    static let freeItemLimit = 1
     static let freeByteLimit: Int64 = 2 * 1024 * 1024 * 1024
     /// 入库前的磁盘安全余量（写副本还需要临时空间）。
     static let diskSafetyMargin: Int64 = 200 * 1024 * 1024
@@ -23,7 +23,7 @@ enum VaultLimits {
 
         let projectedItems = usedItems + additionalItems
         if projectedItems > freeItemLimit {
-            return .quotaExceeded("免费版保险箱最多 %@ 件，当前已用 %@ 件".localized(freeItemLimit, usedItems))
+            return .requiresVIP("免费版保险箱最多 %@ 件，当前已用 %@ 件".localized(freeItemLimit, usedItems))
         }
 
         let projectedBytes = usedBytes + additionalBytes

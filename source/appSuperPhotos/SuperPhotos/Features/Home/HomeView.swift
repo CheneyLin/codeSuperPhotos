@@ -42,6 +42,7 @@ struct HomeView: View {
     @State private var isSettingsPresented = false
     @State private var settingsInitialRoute: SettingsRoute?
     @State private var isDesignSystemPresented = false
+    @State private var isVIPPurchasePresented = false
     @AppStorage("onboarding.completed") private var hasCompletedOnboarding = false
     @State private var isOnboardingPresented = false
     @State private var isRequestingAccess = false
@@ -146,6 +147,9 @@ struct HomeView: View {
                     },
                     onClose: { isAlbumPickerPresented = false }
                 )
+            }
+            .sheet(isPresented: $isVIPPurchasePresented) {
+                VIPPurchaseSheet()
             }
             .fullScreenCover(isPresented: $isDesignSystemPresented) {
                 NavigationStack {
@@ -258,15 +262,27 @@ struct HomeView: View {
             .toast($toastMessage, topPadding: LCDSpec.rowHeight + 10)
             // 冷启动恢复上次选中的销毁道具；设置页与首页共用 AppSettings 这一份。
             .onAppear {
+                if !entitlements.isVIP {
+                    settings.destroyMachine = .wasteBasket
+                }
                 destroy.switchMachine(settings.destroyMachine)
             }
             // 设置页直接选道具后回首页要同步；首页自己切换时两者已相等，直接跳过，
             // 避免弹跳动效播两次。
             .onChange(of: settings.destroyMachine) { _, newValue in
+                guard entitlements.isVIP || newValue == .wasteBasket else {
+                    settings.destroyMachine = .wasteBasket
+                    isVIPPurchasePresented = true
+                    return
+                }
                 guard newValue != destroy.machine else { return }
                 if destroy.switchMachine(newValue) {
                     deviceSwitchToken += 1
                 }
+            }
+            .onChange(of: entitlements.isVIP) { _, isVIP in
+                guard !isVIP else { return }
+                settings.destroyMachine = .wasteBasket
             }
         }
         // 单屏工作区的固定高度元素较多，限制在非无障碍字号内避免遮挡；
@@ -760,6 +776,10 @@ struct HomeView: View {
     /// 结算执行中或销毁流程忙碌时不切换，避免统计口径与界面显示分叉。
     private func cycleDestroyMachine() {
         guard !isExecutingTaskEnd, !destroy.phase.isBusy else { return }
+        guard entitlements.isVIP else {
+            isVIPPurchasePresented = true
+            return
+        }
         let next = destroy.machine.next
         guard destroy.switchMachine(next) else { return }
         settings.destroyMachine = next
@@ -928,7 +948,7 @@ struct HomeView: View {
         }
 
         // 每批张数取设置值；只影响这一批，进行中的任务以快照为准。
-        let batchLimit = TaskPolicy.configuredBatchSize
+        let batchLimit = TaskPolicy.configuredBatchSize(for: entitlements.tier)
         // 延后未到期的照片不进入本批；多取一些再截断，保证凑满一批。
         let snoozedIDs = snooze.activeIDs
         let limit = batchLimit + snoozedIDs.count
@@ -1181,14 +1201,8 @@ struct HomeView: View {
         settlement = result
     }
 
-    /// 保险箱原件与废纸篓合并后的唯一一次删除请求；Debug 的模拟开关沿用原有行为。
+    /// 保险箱原件与废纸篓合并后的唯一一次删除请求。
     private func performCombinedDelete(_ ids: [String]) async throws -> DeleteOutcome {
-        #if DEBUG
-        if DebugOptions.isSimulatingDestroy {
-            try? await Task.sleep(for: .milliseconds(200))
-            return DeleteOutcome(deletedIDs: ids, missingIDs: [])
-        }
-        #endif
         return try await library.delete(localIDs: ids)
     }
 
@@ -1384,6 +1398,21 @@ struct HomeView: View {
     /// 左滑：只记录“保险箱”决策并打开箱门；任务结束才统一加密。
     private func vaultSwipe(_ id: String) {
         guard task.isActive, !isExecutingTaskEnd else { return }
+        let kind = task.kinds(for: [id])[id] ?? .photo
+        let gate = entitlements.canImport(
+            kind: kind,
+            byteSize: 0,
+            usedItems: vault.records.count + task.vaultIDs.count,
+            usedBytes: vault.totalBytes
+        )
+        guard gate.isAllowed else {
+            if gate.requiresVIP {
+                isVIPPurchasePresented = true
+            } else if let message = gate.message {
+                showLCDNotice(message, tone: .danger)
+            }
+            return
+        }
 
         let nextID = idAfterRemoving(id)
         // 同上：舞台推进禁止动画，侧栏开门动画只包它自己的布尔量。
@@ -1472,7 +1501,7 @@ struct HomeView: View {
             return
         }
         let snoozedIDs = snooze.activeIDs
-        let batchLimit = TaskPolicy.configuredBatchSize
+        let batchLimit = TaskPolicy.configuredBatchSize(for: entitlements.tier)
         let rawItems = library.taskItems(
             albumLocalID: nil,
             limit: batchLimit + snoozedIDs.count
@@ -1522,12 +1551,6 @@ struct HomeView: View {
         if environment["UI_TEST_ALBUM_PICKER"] == "1" {
             try? await Task.sleep(for: .milliseconds(900))
             isAlbumPickerPresented = true
-        }
-        #endif
-
-        #if DEBUG
-        if let simulate = environment["UI_TEST_SIMULATE_DESTROY"] {
-            DebugOptions.setSimulatingDestroy(simulate == "1")
         }
         #endif
 
@@ -1684,6 +1707,10 @@ struct HomeView: View {
         if let requested = environment["UI_TEST_MACHINE"].flatMap(MachineKind.init(rawValue:)) {
             try? await Task.sleep(for: .milliseconds(600))
             ensureUITestTask()
+            guard entitlements.isVIP || requested == .wasteBasket else {
+                isVIPPurchasePresented = true
+                return
+            }
             if destroy.switchMachine(requested) {
                 settings.destroyMachine = requested
                 deviceSwitchToken += 1

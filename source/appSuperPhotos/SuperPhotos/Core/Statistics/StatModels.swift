@@ -132,8 +132,8 @@ enum StatPeriod: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// 一期免费只到今日/本周/累计；本月与方式偏好归 VIP。
-    var requiresVIP: Bool { self == .month }
+    /// 免费版只开放今日统计；其他周期均为 VIP 权益。
+    var requiresVIP: Bool { self != .today }
 }
 
 /// 聚合结果；`destroyedBytes` 只含可读到的本地资源。

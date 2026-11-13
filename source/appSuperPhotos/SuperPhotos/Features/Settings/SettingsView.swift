@@ -42,22 +42,14 @@ struct SettingsView: View {
 
     @State private var path: [SettingsRoute] = []
     @State private var didApplyInitialRoute = false
-    @State private var probeMessage = ""
-    @State private var isProbeAlertPresented = false
     @State private var isConfigured = false
     @State private var isVaultSetupPresented = false
     @State private var isVaultResetPresented = false
     @State private var isSnoozeListPresented = false
-    #if DEBUG
-    @State private var entitlementDiagnosis = ""
-    @State private var isEntitlementDiagnosisPresented = false
-    #endif
+    @State private var isVIPPurchasePresented = false
     @AppStorage(VaultAutoLock.defaultsKey) private var autoLockSeconds = VaultAutoLock.immediate.rawValue
-    @AppStorage(VaultEncryptionMode.defaultsKey) private var encryptionModeRaw = VaultEncryptionMode.standard.rawValue
     @AppStorage(TaskPolicy.batchSizeKey) private var batchSize = TaskPolicy.batchSize
     @AppStorage(VaultSyncPreference.enabledKey) private var syncEnabled = false
-
-    private let gigabyte: Int64 = 1024 * 1024 * 1024
 
     init(
         initialRoute: SettingsRoute? = nil,
@@ -97,13 +89,21 @@ struct SettingsView: View {
             .navigationDestination(for: SettingsRoute.self) { route in
                 destination(for: route)
             }
-            .alert("门禁结果".localized, isPresented: $isProbeAlertPresented) {
-                Button("好".localized, role: .cancel) {}
-            } message: {
-                Text(probeMessage)
-            }
             .onAppear {
                 isConfigured = vault.isConfigured
+                if !entitlements.isVIP {
+                    settings.destroyMachine = .wasteBasket
+                    if syncEnabled {
+                        syncEnabledBinding.wrappedValue = false
+                    }
+                }
+            }
+            .onChange(of: entitlements.isVIP) { _, isVIP in
+                guard !isVIP else { return }
+                settings.destroyMachine = .wasteBasket
+                if syncEnabled {
+                    syncEnabledBinding.wrappedValue = false
+                }
             }
             .task {
                 applyRequestedRoute()
@@ -128,12 +128,15 @@ struct SettingsView: View {
             }) {
                 VaultResetView()
             }
+            .sheet(isPresented: $isVIPPurchasePresented) {
+                VIPPurchaseSheet()
+            }
         }
-        // 购买 / 恢复的结果直接在本页反馈（设置页已不再跳转 VIP 页）。
+        // 购买 / 恢复的结果由当前可见的 VIP 页面反馈。
         .alert(
             "VIP",
             isPresented: Binding(
-                get: { entitlements.notice != nil },
+                get: { entitlements.notice != nil && !isVIPPurchasePresented },
                 set: { presented in
                     if !presented { entitlements.clearNotice() }
                 }
@@ -210,11 +213,38 @@ struct SettingsView: View {
     /// 先落盘再通知引擎，保证引擎读到的是新开关值。
     private var syncEnabledBinding: Binding<Bool> {
         Binding(
-            get: { syncEnabled },
+            get: { entitlements.isVIP && syncEnabled },
             set: { newValue in
+                guard entitlements.isVIP else {
+                    if newValue {
+                        isVIPPurchasePresented = true
+                    } else {
+                        syncEnabled = false
+                        UserDefaults.standard.set(false, forKey: VaultSyncPreference.enabledKey)
+                        vaultSync.syncEnabledDidChange()
+                    }
+                    return
+                }
                 syncEnabled = newValue
                 UserDefaults.standard.set(newValue, forKey: VaultSyncPreference.enabledKey)
                 vaultSync.syncEnabledDidChange()
+            }
+        )
+    }
+
+    private var batchSizeValue: Int {
+        TaskPolicy.configuredBatchSize(for: entitlements.tier)
+    }
+
+    private var batchSizeBinding: Binding<Int> {
+        Binding(
+            get: { batchSizeValue },
+            set: { newValue in
+                guard entitlements.isVIP else {
+                    isVIPPurchasePresented = true
+                    return
+                }
+                batchSize = TaskPolicy.clampedBatchSize(newValue)
             }
         )
     }
@@ -278,11 +308,11 @@ struct SettingsView: View {
         .pickerStyle(.segmented)
         .settingsRowIndent()
 
-        Toggle("高对比度".localized, isOn: highContrastBinding)
-            .settingsRowIndent()
-
-        Toggle("降低动效".localized, isOn: reduceMotionBinding)
-            .settingsRowIndent()
+//        Toggle("高对比度".localized, isOn: highContrastBinding)
+//            .settingsRowIndent()
+//
+//        Toggle("降低动效".localized, isOn: reduceMotionBinding)
+//            .settingsRowIndent()
 
         Toggle("音效".localized, isOn: soundBinding)
             .settingsRowIndent()
@@ -311,7 +341,11 @@ struct SettingsView: View {
     private var deviceRows: some View {
         moduleRow(icon: "icon_config_destory", title: "销毁道具".localized)
 
-        DevicePickerStrip(selection: settings.destroyMachine) { machine in
+        DevicePickerStrip(selection: settings.destroyMachine, isVIP: entitlements.isVIP) { machine in
+            guard entitlements.isVIP || machine == .wasteBasket else {
+                isVIPPurchasePresented = true
+                return
+            }
             settings.destroyMachine = machine
         }
         .settingsRowIndent()
@@ -328,7 +362,7 @@ struct SettingsView: View {
                 Text("整理批次".localized)
                     .font(Theme.Typography.body)
                     .foregroundStyle(Theme.Text.primary)
-                Text("每批 %@ 张".localized(batchSize))
+                Text("每批 %@ 张".localized(batchSizeValue))
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
             }
@@ -337,15 +371,19 @@ struct SettingsView: View {
 
             Stepper(
                 "每批张数".localized,
-                value: $batchSize,
-                in: TaskPolicy.batchSizeRange,
+                value: batchSizeBinding,
+                in: entitlements.isVIP ? TaskPolicy.batchSizeRange : 0...200,
                 step: TaskPolicy.batchSizeStep
             )
             .labelsHidden()
             .fixedSize()
             .accessibilityLabel("每批张数".localized)
-            .accessibilityValue("每批 %@ 张".localized(batchSize))
-            .accessibilityHint("范围 10 到 200 张，每次增加或减少 10 张".localized)
+            .accessibilityValue("每批 %@ 张".localized(batchSizeValue))
+            .accessibilityHint(
+                entitlements.isVIP
+                    ? "范围 10 到 200 张，每次增加或减少 10 张".localized
+                    : "VIP 专属，升级后可用".localized
+            )
         }
         .padding(.vertical, 2)
     }
@@ -439,7 +477,7 @@ struct SettingsView: View {
             // iCloud 同步是模块级开关，放在模块首行：设置页很长，压在底部容易被忽略。
             syncToggleRow
 
-            if syncEnabled {
+            if syncEnabledBinding.wrappedValue {
                 syncStatusRow
                 syncDetailRow
             }
@@ -463,13 +501,6 @@ struct SettingsView: View {
             Picker("自动锁定".localized, selection: $autoLockSeconds) {
                 ForEach(VaultAutoLock.allCases) { option in
                     Text(option.title).tag(option.rawValue)
-                }
-            }
-            .settingsRowIndent()
-
-            Picker("内容保护".localized, selection: $encryptionModeRaw) {
-                ForEach(VaultEncryptionMode.allCases) { mode in
-                    Text(mode.title).tag(mode.rawValue)
                 }
             }
             .settingsRowIndent()
@@ -498,14 +529,12 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .disabled(!entitlements.isVIP)
 
             if !entitlements.isVIP {
-                Button("开通 VIP".localized) { triggerPurchase() }
+                Button("开通 VIP".localized) { isVIPPurchasePresented = true }
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.accentColor)
                     .buttonStyle(.plain)
-                    .disabled(entitlements.isPurchasing || entitlements.isRestoring)
                     .accessibilityHint("购买 VIP 后即可开启 iCloud 同步".localized)
             }
         }
@@ -540,31 +569,20 @@ struct SettingsView: View {
 
     private var syncSubtitle: String {
         if !entitlements.isVIP { return "VIP 专属 · 升级后可开启".localized }
-        return syncEnabled
-            ? "标准档内容跨设备可用".localized
-            : "开启后，标准档内容同步到你的 iCloud 私有数据库".localized
-    }
-
-    /// VIP 第一行与保险箱「开通 VIP」入口共用：商品未就绪时只重试拉取，
-    /// 避免「看不到价格就发起扣费」。
-    private func triggerPurchase() {
-        guard !entitlements.isVIP else { return }
-        if entitlements.product == nil {
-            Task { await entitlements.loadProduct() }
-        } else {
-            Task { await entitlements.purchase() }
-        }
+        return syncEnabledBinding.wrappedValue
+            ? "保险箱文件跨设备可用".localized
+            : "开启后，保险箱文件同步到你的 iCloud 私有数据库".localized
     }
 
     // MARK: - VIP
 
     /// 极简两行：第一行「标题 + 副标题（VIP 为成为 VIP 的天数，未购买为商品本地化描述）
     /// / 含价格的购买按钮」，第二行「恢复购买」。两行都是整行 Button（.plain + contentShape），
-    /// 点击区域覆盖整行；购买与恢复的结果通过外层 alert 反馈，不再跳转 VIP 页。
+    /// 点击区域覆盖整行；购买入口打开完整 VIP 购买弹窗，恢复结果由本页反馈。
     private var vipSection: some View {
         Section {
             Button {
-                triggerPurchase()
+                isVIPPurchasePresented = true
             } label: {
                 HStack(spacing: Theme.Spacing.md) {
                     configIcon("icon_config_vip")
@@ -707,107 +725,34 @@ struct SettingsView: View {
     #if DEBUG
     private var debugSection: some View {
         Section {
-            Text("开发工具".localized)
-                .font(Theme.Typography.caption)
-                .foregroundStyle(Theme.Text.tertiary)
-
             NavigationLink(value: SettingsRoute.designSystem) {
                 Text("设计系统预览".localized)
                     .settingsRowIndent()
             }
 
-            Toggle("模拟销毁（不真删）".localized, isOn: Binding(
-                get: { DebugOptions.readSimulatingDestroy() },
-                set: { DebugOptions.setSimulatingDestroy($0) }
-            ))
+            HStack(spacing: Theme.Spacing.sm) {
+                simulationButton(title: "非 VIP".localized, tier: .free)
+                simulationButton(title: "VIP".localized, tier: .vip)
+            }
             .settingsRowIndent()
-
-            Button {
-                Task {
-                    entitlementDiagnosis = await entitlements.diagnostics()
-                    isEntitlementDiagnosisPresented = true
-                }
-            } label: {
-                Text("权益诊断（StoreKit 交易）".localized)
-                    .settingsRowIndent()
-            }
-
-            gateProbeRows
-        }
-        .alert("权益诊断".localized, isPresented: $isEntitlementDiagnosisPresented) {
-            Button("好".localized, role: .cancel) {}
-        } message: {
-            Text(entitlementDiagnosis)
+        } header: {
+            Text("开发工具".localized)
         }
     }
 
-    @ViewBuilder
-    private var gateProbeRows: some View {
-        ForEach(MediaKind.allCases) { kind in
-            Button {
-                showProbe(for: kind)
-            } label: {
-                HStack {
-                    Text("入库：%@".localized(kind.displayName))
-                    Spacer()
-                    statusIcon(
-                        entitlements.canImport(
-                            kind: kind,
-                            byteSize: 5 * 1024 * 1024,
-                            usedItems: 10,
-                            usedBytes: 512 * 1024 * 1024
-                        )
-                    )
-                }
-                .foregroundStyle(.primary)
-                .settingsRowIndent()
-            }
-        }
-
-        probeRow(title: "容量：59 件 / 1.9GB".localized, result: entitlements.quotaStatus(usedItems: 59, usedBytes: Int64(1.9 * Double(gigabyte))))
-        probeRow(title: "容量：60 件 / 2.0GB".localized, result: entitlements.quotaStatus(usedItems: 60, usedBytes: 2 * gigabyte))
-        probeRow(title: "容量：61 件".localized, result: entitlements.quotaStatus(usedItems: 61, usedBytes: 2 * gigabyte))
-        probeRow(title: "容量：2.1GB".localized, result: entitlements.quotaStatus(usedItems: 60, usedBytes: Int64(2.1 * Double(gigabyte))))
-    }
-
-    private func probeRow(title: String, result: GateResult) -> some View {
-        HStack {
+    private func simulationButton(title: String, tier: EntitlementTier) -> some View {
+        let isSelected = entitlements.simulatedTier == tier
+        return Button {
+            entitlements.setSimulatedTier(tier)
+        } label: {
             Text(title)
-            Spacer()
-            statusIcon(result)
+                .font(Theme.Typography.caption.weight(.semibold))
+                .foregroundStyle(isSelected ? Theme.Text.primary : Theme.Text.secondary)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .neuSurface(isSelected ? .inset : .raisedSmall, cornerRadius: Theme.Radius.chip)
         }
-        .settingsRowIndent()
-    }
-
-    @ViewBuilder
-    private func statusIcon(_ result: GateResult) -> some View {
-        switch result {
-        case .allowed:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color.green)
-                .accessibilityLabel("允许".localized)
-        case .requiresVIP:
-            Image(systemName: "lock.fill")
-                .foregroundStyle(Color.orange)
-                .accessibilityLabel("需要 VIP".localized)
-        case .quotaExceeded:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.red)
-                .accessibilityLabel("超出额度".localized)
-        }
-    }
-
-    private func showProbe(for kind: MediaKind) {
-        let result = entitlements.canImport(
-            kind: kind,
-            byteSize: 5 * 1024 * 1024,
-            usedItems: 10,
-            usedBytes: 512 * 1024 * 1024
-        )
-        probeMessage = result.isAllowed
-            ? "允许入库：%@".localized(kind.displayName)
-            : (result.message ?? "未通过门禁".localized)
-        isProbeAlertPresented = true
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
     #endif
 }

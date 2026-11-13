@@ -46,7 +46,9 @@ extension CleaningTaskSnapshot {
 
 enum TaskPolicy {
     /// 一次任务最多处理的张数（默认值来源）。
-    static let batchSize = 100
+    static let batchSize = 10
+    /// 免费版批次固定为 10 张。
+    static let freeBatchSize = 10
     /// 设置项：每批张数，范围 10–200、步长 10。
     static let batchSizeKey = "task.batchSize"
     static let batchSizeRange = 10...200
@@ -56,6 +58,10 @@ enum TaskPolicy {
     static var configuredBatchSize: Int {
         let stored = UserDefaults.standard.object(forKey: batchSizeKey) as? Int
         return clampedBatchSize(stored ?? batchSize)
+    }
+
+    static func configuredBatchSize(for tier: EntitlementTier) -> Int {
+        tier == .vip ? configuredBatchSize : freeBatchSize
     }
 
     static func clampedBatchSize(_ value: Int) -> Int {

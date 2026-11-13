@@ -39,7 +39,7 @@
 | 32 | M8 | 统计周期与 VIP 边界 | 免费：今日/本周/累计；VIP：本月 + 方式偏好；趋势图/年度报告归二期 | 与 `Feature.statsAdvanced` 的既有文案一致；VIP 页标注“二期”，不提前实现 |
 | 33 | M8 | 设置页路由与直达 | 引入 `SettingsRoute` + `NavigationStack(path:)`；首页用 Binding 把目标路由传入 sheet | sheet 内容可能早于外部状态更新被构建，实测 `initialRoute` 恒为 nil；改 Binding 后已截图验证可直达统计/VIP/关于 |
 | 34 | M8 | 统计自检样本 | `UI_TEST_STATS_SELFCHECK` 注入三组固定样本（今日两行 + 100 天前一行），期望今日 5 件/50MB/1 未知、累计 9 件/60MB/3 未知 | 覆盖同日合并、90 天并入月行、未知计数三条口径；实测 PASS。注意 ByteCountFormatter 十进制展示 50MB 为 52.4MB |
-| 35 | M8 | 新增 DEBUG 钩子 | `UI_TEST_DISPLAY_MODE`、`UI_TEST_HIGH_CONTRAST`、`UI_TEST_REDUCE_MOTION`、`UI_TEST_SOUND_OFF`、`UI_TEST_VIP`、`UI_TEST_TOGGLE_DISPLAY`、`UI_TEST_OPEN_STATS`、`UI_TEST_OPEN_VIP`、`UI_TEST_OPEN_ABOUT`、`UI_TEST_STATS_PERIOD`、`UI_TEST_STATS_RESET`、`UI_TEST_SIMULATE_DESTROY` | 模拟器无触摸注入；钩子只在 DEBUG 编译，不进入 Release |
+| 35 | M8 | 新增 DEBUG 钩子 | `UI_TEST_DISPLAY_MODE`、`UI_TEST_HIGH_CONTRAST`、`UI_TEST_REDUCE_MOTION`、`UI_TEST_SOUND_OFF`、`UI_TEST_VIP`、`UI_TEST_TOGGLE_DISPLAY`、`UI_TEST_OPEN_STATS`、`UI_TEST_OPEN_VIP`、`UI_TEST_OPEN_ABOUT`、`UI_TEST_STATS_PERIOD`、`UI_TEST_STATS_RESET` | 模拟器无触摸注入；钩子只在 DEBUG 编译，不进入 Release |
 | 36 | M8 | 关于页反馈入口 | 不使用虚构邮箱，改为 `mailto:` 空收件人 + 提示走 TestFlight 反馈 | 避免上线后指向不存在的地址；正式支持邮箱待运营确定 |
 | 37 | M8 | 统计重置范围 | 只清 DayStat 与按天浏览去重 ID，不触碰照片、保险箱副本与清单 | 与文案一致，可安全回退；重置入口在统计页与关于页均做二次确认 |
 | 38 | M9 | 首次引导 | 3 页（五区 / 销毁玩法 / 保险箱），可跳过，完成写入 `onboarding.completed`；权限通过后才出现 | 与产品地图一致；不阻塞权限页，跳过不写完成态之外的任何数据 |

@@ -8,8 +8,8 @@ import UIKit
 /// 设计边界（与产品决策一致）：
 /// - SwiftData 清单仍是本机唯一真相，不把 `ModelContainer` 改成 CloudKit 容器，
 ///   避免 `DayStat` 统计被一起同步、也避免本机语义字段（`originLocalID` 等）跨域冲突。
-/// - 只有「标准档」明文文件参与同步；强加密档的 AES-GCM 密钥只在本机 Keychain，
-///   上传后其它设备无法解密，因此直接跳过。密码 verifier、锁定状态同样不上云，
+/// - 只有普通明文文件参与同步；旧版本加密文件的 AES-GCM 密钥只在本机 Keychain，
+///   上传后其它设备无法解密，因此继续跳过。密码 verifier、锁定状态同样不上云，
 ///   每台设备各自设一次密码。
 /// - 删除用 `isDeleted` 墓碑传播，不做 CloudKit 硬删除：本机删掉一条后仍能把
 ///   「删除」这件事传到其它设备，新设备也不会把云端条目误当成新增。
@@ -26,8 +26,8 @@ final class VaultSyncEngine {
     private(set) var lastSyncDate: Date?
     private(set) var syncedItemCount = 0
     private(set) var pendingItemCount = 0
-    /// 被跳过的强加密档条目数，供设置页提示「强加密内容不会上传」。
-    private(set) var skippedStrongItemCount = 0
+    /// 被跳过的旧版加密条目数。
+    private(set) var skippedLegacyEncryptedItemCount = 0
     private(set) var errorMessage: String?
 
     @ObservationIgnored private weak var vault: VaultStore?
@@ -35,6 +35,7 @@ final class VaultSyncEngine {
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var didStart = false
+    @ObservationIgnored private var syncRequestedWhileRunning = false
 
     init() {
         container = CKContainer(identifier: VaultSyncField.containerIdentifier)
@@ -81,6 +82,10 @@ final class VaultSyncEngine {
     func syncNow() {
         guard VaultSyncPreference.isEnabled else { refreshGate(); return }
         guard entitlements?.isVIP == true else { phase = .vipRequired; return }
+        if isSyncing {
+            syncRequestedWhileRunning = true
+            return
+        }
         debounceTask?.cancel()
         syncTask?.cancel()
         syncTask = Task { [weak self] in await self?.runSync() }
@@ -112,9 +117,9 @@ final class VaultSyncEngine {
     }
 
     var detailText: String {
-        var text = "标准档内容同步到你的 iCloud 私有数据库；强加密内容与密码始终只留在本机，每台设备各自设置密码。".localized
-        if skippedStrongItemCount > 0 {
-            text += " 当前有 %@ 项强加密内容未上传。".localized(skippedStrongItemCount)
+        var text = "保险箱普通文件同步到你的 iCloud 私有数据库；密码与锁定状态始终只留在本机，每台设备各自设置密码。".localized
+        if skippedLegacyEncryptedItemCount > 0 {
+            text += " 当前有 %@ 项旧版加密内容未上传。".localized(skippedLegacyEncryptedItemCount)
         }
         return text
     }
@@ -167,12 +172,22 @@ final class VaultSyncEngine {
     private func runSync() async {
         guard VaultSyncPreference.isEnabled else { refreshGate(); return }
         guard entitlements?.isVIP == true else { phase = .vipRequired; return }
-        guard !isSyncing, let vault else { return }
+        guard !isSyncing else {
+            syncRequestedWhileRunning = true
+            return
+        }
+        guard let vault else { return }
 
         isSyncing = true
         phase = .syncing
         errorMessage = nil
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            if syncRequestedWhileRunning {
+                syncRequestedWhileRunning = false
+                scheduleSync(delay: .milliseconds(0))
+            }
+        }
 
         do {
             switch try await fetchAccountStatus() {
@@ -202,10 +217,10 @@ final class VaultSyncEngine {
 
             try await pull(remoteItems, tombstones: tombstonesBefore, vault: vault)
             // 整轮远端写入结束后统一刷新一次清单（排序、totalBytes、revision）。
-            vault.reload()
+            vault.reload(notifySync: false)
 
             let localItems = vault.syncableItems()
-            skippedStrongItemCount = max(0, vault.records.count - localItems.count)
+            skippedLegacyEncryptedItemCount = vault.legacyEncryptedItemCount
             pendingItemCount = localItems.filter {
                 remoteByID[VaultSyncField.recordName(for: $0.id)] == nil
             }.count

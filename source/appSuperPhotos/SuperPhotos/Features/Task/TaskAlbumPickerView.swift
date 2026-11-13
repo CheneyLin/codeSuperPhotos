@@ -9,6 +9,8 @@ enum AlbumPickerSelection {
 
 /// 开始任务前选择相簿：全部照片 + 未归类照片 + 我的所有相簿。
 struct TaskAlbumPickerView: View {
+    @Environment(EntitlementStore.self) private var entitlements
+
     let allPhotoCount: Int
     /// nil 表示首次差集还没算完，行内显示「计算中…」。
     let uncategorizedCount: Int?
@@ -18,7 +20,11 @@ struct TaskAlbumPickerView: View {
 
     @AppStorage(TaskPolicy.batchSizeKey) private var batchSize = TaskPolicy.batchSize
 
-    private var batchLimit: Int { TaskPolicy.clampedBatchSize(batchSize) }
+    private var batchLimit: Int {
+        entitlements.isVIP
+            ? TaskPolicy.clampedBatchSize(batchSize)
+            : TaskPolicy.freeBatchSize
+    }
 
     var body: some View {
         NavigationStack {
@@ -63,7 +69,11 @@ struct TaskAlbumPickerView: View {
                 }
                 .padding(Theme.Spacing.page)
 
-                Text("每批最多取 %@ 张（设置里可改）。相簿张数不足时按实际张数开始。".localized(batchLimit))
+                Text(
+                    entitlements.isVIP
+                        ? "每批最多取 %@ 张（设置里可改）。相簿张数不足时按实际张数开始。".localized(batchLimit)
+                        : "每批最多取 %@ 张（免费版固定）。相簿张数不足时按实际张数开始。".localized(batchLimit)
+                )
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Text.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)

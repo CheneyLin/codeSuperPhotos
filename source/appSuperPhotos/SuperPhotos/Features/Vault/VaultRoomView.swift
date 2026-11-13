@@ -395,7 +395,7 @@ private struct VaultGridSeparators: View {
 struct VaultExportRequest: Identifiable {
     let id = UUID()
     let urls: [URL]
-    /// 强加密档导出时产生的解密临时目录，分享结束后删除。
+    /// 导出旧版加密文件时产生的解密临时目录，分享结束后删除。
     let temporaryDirectories: [URL]
 }
 

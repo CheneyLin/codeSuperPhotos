@@ -1,6 +1,22 @@
 import SwiftUI
 import StoreKit
 
+struct VIPPurchaseSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VIPView()
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("完成".localized) { dismiss() }
+                    }
+                }
+        }
+        .presentationDetents([.large])
+    }
+}
+
 /// VIP 权益页：一次性购买（非消耗型）的完整购买 / 恢复入口。
 /// 设置页已提供极简两行快捷操作，本页作为备用完整页保留；
 /// 权益对比与欢迎轮播图素材共用 `SettingsTip.vip.comparison`，避免两处文案走样。
@@ -62,8 +78,8 @@ struct VIPView: View {
             }
 
             Text(entitlements.isVIP
-                 ? "已购买，VIP 永久有效：实况照片与视频、不限容量、本月统计等权益全部可用。".localized
-                 : "VIP 为一次性购买，付款一次即可永久解锁实况照片与视频、不限容量与本月统计等权益。".localized)
+                 ? "已购买，VIP 永久有效：实况照片与视频、不限容量、完整统计周期等权益全部可用。".localized
+                 : "VIP 为一次性购买，付款一次即可永久解锁实况照片与视频、不限容量与完整统计周期等权益。".localized)
                 .font(Theme.Typography.body)
                 .foregroundStyle(Theme.Text.secondary)
         }

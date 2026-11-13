@@ -94,6 +94,7 @@ struct DeviceDistributionList: View {
 /// 设置页的五款道具横排选择器；与首页底部点击切换共用 AppSettings。
 struct DevicePickerStrip: View {
     let selection: MachineKind
+    var isVIP = true
     let onSelect: (MachineKind) -> Void
 
     var body: some View {
@@ -104,11 +105,20 @@ struct DevicePickerStrip: View {
                     onSelect(machine)
                 } label: {
                     VStack(spacing: 3) {
-                        Image(machine.assetName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 42, height: 42)
-                            .opacity(isSelected ? 1 : 0.6)
+                        ZStack(alignment: .topTrailing) {
+                            Image(machine.assetName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 42, height: 42)
+                                .opacity(isSelected ? 1 : 0.6)
+                            if !isVIP && machine != .wasteBasket {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Theme.Text.secondary)
+                                    .padding(4)
+                                    .background(Theme.Surface.raised, in: Circle())
+                            }
+                        }
                         Text(machine.displayName)
                             .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
                             .foregroundStyle(isSelected ? Theme.Text.primary : Theme.Text.tertiary)
@@ -127,7 +137,11 @@ struct DevicePickerStrip: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(machine.displayName)
+                .accessibilityLabel(
+                    !isVIP && machine != .wasteBasket
+                        ? "VIP：%@".localized(machine.displayName)
+                        : machine.displayName
+                )
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
