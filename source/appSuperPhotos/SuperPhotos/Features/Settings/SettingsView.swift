@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import StoreKit
 
 /// 设置页内部路由；首页的 DEBUG 钩子也通过它直达统计与 VIP。
@@ -49,6 +50,7 @@ struct SettingsView: View {
     @State private var isVaultResetPresented = false
     @State private var isSnoozeListPresented = false
     @State private var isVIPPurchasePresented = false
+    @State private var selectedIconName: String? = UIApplication.shared.alternateIconName
     @State private var previewMachine: MachineKind?
     @State private var previewTrigger = 0
     @AppStorage(VaultAutoLock.defaultsKey) private var autoLockSeconds = VaultAutoLock.immediate.rawValue
@@ -80,7 +82,8 @@ struct SettingsView: View {
                 // 外观 / 销毁道具 / 统计 / 整理 / 延后 合并为一组主模块。
                 mainSection
                 vaultSection
-                moreSection
+                // 应用图标 + 我们的应用 + 关于 合并为一组，置于设置页最上面。
+                appIconsAndAboutSection
                 #if DEBUG
                 debugSection
                 #endif
@@ -602,6 +605,33 @@ struct SettingsView: View {
             : "开启后，保险箱文件同步到你的 iCloud 私有数据库".localized
     }
 
+    // MARK: - 应用图标
+
+    /// 「应用图标和关于」模块的第一栏：横向滑动浏览可选图标，点击启用。
+    /// 默认（主图标）对应 `nil`；其余为 `AssetsAppIcons.xcassets` 中声明的备用图标集名，
+    /// 由构建设置 `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` 注册到 Info.plist。
+    private var appIconRows: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.md) {
+                ForEach(AppIconOption.allCases) { option in
+                    AppIconChip(
+                        option: option,
+                        isSelected: selectedIconName == option.iconName
+                    ) {
+                        selectIcon(option)
+                    }
+                }
+            }
+            .padding(.vertical, Theme.Spacing.xs)
+        }
+    }
+
+    private func selectIcon(_ option: AppIconOption) {
+        // 乐观更新选中态；系统完成切换后以 alternateIconName 为准。
+        selectedIconName = option.iconName
+        UIApplication.shared.setAlternateIconName(option.iconName) { _ in }
+    }
+
     // MARK: - VIP
 
     /// 极简两行：第一行「标题 + 副标题（VIP 为成为 VIP 的天数，未购买为商品本地化描述）
@@ -722,12 +752,15 @@ struct SettingsView: View {
         return "购买 VIP，%@".localized(price)
     }
 
-    // MARK: - 我们的应用 / 关于
+    // MARK: - 应用图标和关于
 
-    /// 合并为一组：应用列表用图标行标识，关于把图标与版本号直接放在入口行里。
-    private var moreSection: some View {
+    /// 合并为一组：标题行标明「应用图标和关于」，图标切换放在最上面，
+    /// 其后依次是应用列表与关于入口。
+    private var appIconsAndAboutSection: some View {
         Section {
-            moduleRow(icon: "icon_config_apps", title: "我们的应用".localized)
+            moduleRow(icon: "icon_config_apps", title: "应用图标和关于".localized)
+
+            appIconRows
 
             OurAppsRows()
 
@@ -843,6 +876,97 @@ private struct DevicePreviewInline: View {
             shakeToken += 1
             switchToken += 1
         }
+    }
+}
+
+private enum AppIconOption: String, CaseIterable, Identifiable {
+    case `default`
+    case binWaste = "AppIconBinWaste"
+    case paperCutter = "AppIconPaperCutter"
+    case fireplace = "AppIconFireplace"
+    case mailBox = "AppIconMailBox"
+    case door = "AppIconDoor"
+    case vault = "AppIconVault"
+    case album = "AppIconAlbum"
+
+    var id: String { rawValue }
+
+    /// nil 表示使用主图标（默认）。
+    var iconName: String? { self == .default ? nil : rawValue }
+
+    /// 缩略图资源名：默认用主 `AppIcon`；备用项用 `AssetsAppIcons` 里的
+    /// `IconPreview*` 预览图（普通 imageset，可直接作为图片渲染）。
+    /// 切换用的图标集名另由 `iconName` 提供。
+    var assetName: String {
+        switch self {
+        case .default: return "IconPreviewDefault"
+        case .binWaste: return "IconPreviewBinWaste"
+        case .paperCutter: return "IconPreviewPaperCutter"
+        case .fireplace: return "IconPreviewFireplace"
+        case .mailBox: return "IconPreviewMailBox"
+        case .door: return "IconPreviewDoor"
+        case .vault: return "IconPreviewVault"
+        case .album: return "IconPreviewAlbum"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .default: return "默认".localized
+        case .binWaste: return "废纸篓".localized
+        case .paperCutter: return "碎纸机".localized
+        case .fireplace: return "壁炉".localized
+        case .mailBox: return "信箱".localized
+        case .door: return "任意门".localized
+        case .vault: return "保险箱".localized
+        case .album: return "相册".localized
+        }
+    }
+}
+
+private struct AppIconChip: View {
+    let option: AppIconOption
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(option.assetName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(
+                                isSelected ? Theme.Accent.fire : Theme.Text.tertiary.opacity(0.25),
+                                lineWidth: isSelected ? 3 : 1
+                            )
+                    )
+                    .shadow(color: Theme.Shadow.dark.opacity(0.35), radius: 6, x: 0, y: 3)
+
+                Text(option.displayName)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(isSelected ? Theme.Text.primary : Theme.Text.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .frame(width: 80)
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Theme.Accent.fire)
+                        .background(Circle().fill(Theme.Surface.base))
+                        .offset(x: 2, y: -2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(option.displayName)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isSelected ? "当前已启用的应用图标".localized : "点击启用此应用图标".localized)
     }
 }
 

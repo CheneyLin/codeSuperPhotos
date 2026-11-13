@@ -496,3 +496,11 @@
 "继续" = "Continue";
 "立即授权开始" = "Authorize & Start";
 "清空首次访问标识" = "Reset first-launch flag";
+
+"信箱" = "Mailbox";
+"保险箱" = "Vault";
+"默认" = "Default";
+
+"应用图标和关于" = "App Icons & About";
+"当前已启用的应用图标" = "Currently enabled app icon";
+"点击启用此应用图标" = "Tap to enable this app icon";
